@@ -1,0 +1,20 @@
+rules:
+  - field: email
+    condition: valid
+    points: 20
+    description: "Lead has a valid email address"
+
+  - field: phone
+    condition: valid
+    points: 15
+    description: "Lead has a phone number normalised to E.164"
+
+  - field: website
+    condition: valid
+    points: 10
+    description: "Lead has a valid website URL"
+
+  - field: completeness
+    condition: completeness
+    weight: 55
+    description: "Completeness score — scaled by filled_fields / total_fields"

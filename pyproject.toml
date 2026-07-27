@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leadhunter"
+version = "1.0.0"
+description = "Lead collection, management, and scoring system"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+    "click==8.1.8",
+    "openpyxl==3.1.5",
+    "requests==2.32.3",
+    "beautifulsoup4==4.12.3",
+    "pydantic==2.10.6",
+    "tqdm==4.67.1",
+    "PyYAML>=6.0",
+    "playwright>=1.49.0",
+]
+
+[project.scripts]
+leadhunter = "leadhunter.presentation.cli.main:main"
+detu = "leadhunter.presentation.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["leadhunter*"]
+
+# ---------------------------------------------------------------------------
+# Ruff — linting and formatting (CODE-001)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C90"]
+ignore = ["E501"]  # Line length handled by formatter
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]  # Allow assert in tests
+
+# ---------------------------------------------------------------------------
+# mypy — strict type checking (CODE-002, NFR-009)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+exclude = ["tests/"]
+
+# ---------------------------------------------------------------------------
+# pytest — test configuration (SCOPE-014, GOAL-006)
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--tb=short",
+    "-v",
+]
+
+[tool.coverage.run]
+source = ["leadhunter"]
+omit = ["tests/*", "leadhunter/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 85
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
