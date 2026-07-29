@@ -55,7 +55,7 @@ class GoogleMapsScraper:
                 return leads
         return []
 
-    def scrape_fast(self, keyword: str, min_clean_target: int = 80) -> list[dict[str, str]]:
+    def scrape_fast(self, keyword: str, min_clean_target: int = 80, status_callback=None, is_duplicate_fn=None, worker_id: int = 1, stop_event=None) -> list[dict[str, str]]:
         """Google Maps scraper — network-first for high yield.
 
         Luồng xử lý:
@@ -63,12 +63,7 @@ class GoogleMapsScraper:
         2. DOM cards     → aria-label + href (place URL có tọa độ).
         3. Khi tên khớp → dùng href đầy đủ; không khớp → search URL (vẫn click được).
         """
-        districts = [
-            "Tân Bình", "Gò Vấp", "Quận 12", "Thủ Đức", "Bình Tân", "Quận 10", 
-            "Quận 3", "Quận 7", "Phú Nhuận", "Bình Thạnh",
-            "Thuận An Bình Dương", "Dĩ An Bình Dương", "Thủ Dầu Một Bình Dương", "Bến Cát Bình Dương",
-            "Hồ Chí Minh", "Bình Dương"
-        ]
+
 
         seen_phones: set[str] = set()
 
@@ -217,7 +212,7 @@ class GoogleMapsScraper:
                 for (let i = 0; i < lines.length; i++) {
                     const l = lines[i].trim();
                     // Ưu tiên dòng địa chỉ chứa dấu phẩy hoặc số nhà và địa danh Việt Nam
-                    if (!address && l.length >= 6 && !l.includes('·') && !l.includes('★') && !l.includes('Open') && !l.includes('Closed') && (l.includes(',') || /\\d/.test(l)) && (l.includes('Hồ Chí Minh') || l.includes('Ho Chi Minh') || l.includes('HCM') || l.includes('Vietnam') || l.includes('Việt Nam') || l.includes('Quận') || l.includes('Phường') || l.includes('Đường'))) {
+                    if (!address && l.length >= 6 && l !== name && !l.includes('·') && !l.includes('★') && !l.includes('Open') && !l.includes('Closed') && (l.includes(',') || /\\d/.test(l)) && (l.includes('Hồ Chí Minh') || l.includes('Ho Chi Minh') || l.includes('HCM') || l.includes('Vietnam') || l.includes('Việt Nam') || l.includes('Quận') || l.includes('Phường') || l.includes('Đường'))) {
                         address = l;
                     }
                     const m = l.match(/(?:\\+84|84|0)\\s*(?:3|5|7|8|9)\\d[\\d\\s.\\-]{7,11}\\d/);
@@ -228,7 +223,7 @@ class GoogleMapsScraper:
                 if (!address) {
                     for (let i = 0; i < lines.length; i++) {
                         const l = lines[i].trim();
-                        if (!address && l.length >= 8 && !l.includes('·') && !l.includes('★') && (l.includes('Hồ Chí Minh') || l.includes('Ho Chi Minh') || l.includes('HCM') || l.includes('Vietnam') || l.includes('Việt Nam'))) {
+                        if (!address && l.length >= 8 && l !== name && !l.includes('·') && !l.includes('★') && (l.includes('Hồ Chí Minh') || l.includes('Ho Chi Minh') || l.includes('HCM') || l.includes('Vietnam') || l.includes('Việt Nam'))) {
                             address = l;
                         }
                     }
@@ -273,167 +268,262 @@ class GoogleMapsScraper:
             return True
 
         try:
+            # 3 Brains (Môi trường mạng)
+            proxy_playwright = None
+            brain_name = "Mạng gốc (Hệ Free)"
+            
+            if self._proxy:
+                proxy_playwright = {"server": self._proxy.get("http", "").replace("http://", "")}
+                brain_name = "Mạng Proxy (Hệ VIP)"
+            
+            user_agents = {
+                1: ("Win", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                2: ("Mac", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                3: ("Linux", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            }
+            # Nếu có nhiều hơn 3 worker, quay vòng lại
+            os_name, ua_string = user_agents.get((worker_id - 1) % 3 + 1, user_agents[1])
+
+            if status_callback:
+                status_callback(f"🤖 [Nhân {worker_id} - {os_name}] Khởi động với: {brain_name}", 0)
+            else:
+                print(f"\n[🤖] [Nhân {worker_id} - {os_name}] Khởi động với {brain_name} để vượt tường lửa...", flush=True)
+
             with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+                launch_kwargs = {
+                    "headless": True, 
+                    "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+                }
+                if proxy_playwright:
+                    launch_kwargs["proxy"] = proxy_playwright
+
+                browser = p.chromium.launch(**launch_kwargs)
                 context = browser.new_context(
                     viewport={"width": 1280, "height": 800},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                               "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    user_agent=ua_string
                 )
                 context.route("**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2,ttf,otf}", lambda r: r.abort())
                 page = context.new_page()
                 page.on("response", handle_response)
 
-                for district in districts:
-                    if len(all_leads) >= min_clean_target:
-                        break
+                # Scrape directly with the exact keyword provided
+                url = f"https://www.google.com/maps/search/{urllib.parse.quote(keyword)}"
 
-                    query = f"{keyword} {district}".strip()
-                    url = f"https://www.google.com/maps/search/{urllib.parse.quote(query)}"
+                try:
+                    try:
+                        # Tăng timeout lên 15s để tránh nghẽn khi chạy 3 luồng
+                        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                    except Exception:
+                        # Đợi thêm một chút nếu bị timeout nhưng trang vẫn đang load
+                        page.wait_for_load_state("domcontentloaded", timeout=5000)
+                        pass
 
                     try:
-                        try:
-                            page.goto(url, wait_until="domcontentloaded", timeout=4000)
-                        except Exception:
-                            pass
-
                         feed = page.query_selector("div[role='feed']")
-                        all_extracted_cards = {}
+                        if not feed:
+                            # Nếu không có feed, thử đợi thêm một chút
+                            try:
+                                page.wait_for_selector("div[role='feed']", timeout=3000)
+                                feed = page.query_selector("div[role='feed']")
+                            except Exception:
+                                pass
+                        
                         if feed:
-                            prev_h = 0
-                            no_change = 0
-                            for _ in range(80):
-                                page.evaluate("(el) => el.scrollBy(0, 8000)", feed)
-                                time.sleep(1.5)
-                                
-                                # Cào thẻ ngay trong lúc cuộn để tránh Google Maps xóa DOM ẩn
-                                chunk = page.evaluate(CARDS_EXTRACT_JS)
-                                for c in chunk:
-                                    if c["href"] not in all_extracted_cards:
-                                        all_extracted_cards[c["href"]] = c
+                            # Cuộn feed xuống cuối 3 lần cho mỗi batch để khởi động list
+                            for _ in range(3):
+                                feed.evaluate("el => el.scrollTop = el.scrollHeight")
+                                time.sleep(0.3)
+                    except Exception:
+                        pass
+                    
+                    last_count = 0
+                    stuck_count = 0
 
-                                curr_h = page.evaluate("(el) => el.scrollHeight", feed)
-                                if curr_h == prev_h:
-                                    no_change += 1
-                                    if no_change >= 3:
-                                        print("  ✅ [Đã cuộn đến cuối danh sách Google Maps]", flush=True)
-                                        break
-                                else:
-                                    no_change = 0
-                                    prev_h = curr_h
+                    # Cuộn liên tục để trigger RPC payload
+                    for _ in range(50):
+                        if stop_event and stop_event.is_set():
+                            break
+                        if len(all_leads) >= min_clean_target:
+                            break
 
-                        # Trích xuất tức thì 100% thẻ từ trang danh sách mà không làm treo hay đơ Terminal
-                        cards = list(all_extracted_cards.values())
+                        # Dùng JS lấy dữ liệu cực nhanh không sợ đơ
+                        cards = page.evaluate(CARDS_EXTRACT_JS)
 
-                        for idx, card in enumerate(cards):
-                            if len(all_leads) >= min_clean_target:
-                                break
-
-                            place_name = card["name"]
-                            place_url = card["href"]
-                            place_addr = card["address"]
-                            place_phone = card["phone"]
-                            place_web = card["website"]
-
-                            if place_url in seen_hrefs:
-                                continue
-                            seen_hrefs.add(place_url)
-
-                            # BẮT BUỘC BỎ QUA NẾU ĐƠN VỊ CÓ WEBSITE THỰC TẾ (co web bo qua)
-                            if _is_professional_website(place_web):
-                                continue
-
-                            if not place_name or _is_place_id_or_junk(place_name):
-                                continue
-                            if any(j in place_name.lower() for j in JUNK_NAMES):
-                                continue
-
-                            p_str = place_phone
-                            if not p_str or not place_addr or len(place_addr) < 15:
-                                # Trực tiếp mở URL trang cơ sở để trích xuất 100% SĐT, Địa chỉ chi tiết có số nhà, Tên và Website
-                                d_page = None
+                        # Tự động click vào các quán có trong DOM để load detail
+                        for i, c in enumerate(cards):
+                            if stop_event and stop_event.is_set(): break
+                            if c['href'] not in seen_hrefs:
+                                seen_hrefs.add(c['href'])
                                 try:
-                                    d_page = context.new_page()
-                                    d_page.goto(place_url, wait_until="domcontentloaded", timeout=6000)
-                                    try:
-                                        d_page.wait_for_selector('h1.DUwfe, h1', timeout=3000)
-                                        # Wait specifically for the phone button if we don't have phone
-                                        if not place_phone:
-                                            d_page.wait_for_selector('button[data-item-id*="phone"]', timeout=1500)
-                                    except Exception:
-                                        pass
-                                    time.sleep(1.0)
-                                    detail = d_page.evaluate('''() => {
-                                        const h1 = document.querySelector('h1.DUwfe, h1');
-                                        const addrBtn = document.querySelector('button[data-item-id="address"]');
-                                        const phoneBtn = document.querySelector('button[data-item-id*="phone"]');
-                                        const webBtn = document.querySelector('a[data-item-id="authority"]');
-                                        return {
-                                            name: h1 ? h1.innerText.trim() : '',
-                                            address: addrBtn ? addrBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
-                                            phone: phoneBtn ? phoneBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
-                                            website: webBtn ? (webBtn.href || '') : ''
-                                        };
-                                    }''')
-                                    if detail.get("phone"):
-                                        p_str = detail["phone"]
-                                    if detail.get("address") and len(detail["address"]) > len(place_addr):
-                                        place_addr = detail["address"]
-                                    if detail.get("name") and len(detail["name"]) > len(place_name):
-                                        place_name = detail["name"]
-                                    if detail.get("website"):
-                                        place_web = detail["website"]
+                                    # Click the actual card to trigger detail panel & RPC
+                                    els = page.query_selector_all('a.hfpxzc, a.HFpxzc')
+                                    if i < len(els):
+                                        els[i].click(force=True, timeout=1000)
+                                        time.sleep(0.3)
                                 except Exception:
                                     pass
-                                finally:
-                                    if d_page:
-                                        try:
-                                            d_page.close()
-                                        except Exception:
-                                            pass
 
-                            if not p_str:
-                                # Tìm trong RPC leads thu bắt qua network
-                                for ph in list(rpc_leads.keys()):
-                                    if ph not in seen_phones:
-                                        p_str = ph
-                                        break
+                        # Kiểm tra xem có lấy được thêm dữ liệu không
+                        if len(rpc_leads) > last_count:
+                            last_count = len(rpc_leads)
+                            stuck_count = 0
+                        else:
+                            stuck_count += 1
+                            if stuck_count > 6:
+                                # Cuộn đến cuối mà không có thẻ mới
+                                print("  ✅ [Đã cuộn đến cuối danh sách Google Maps]", flush=True)
+                                break
 
-                            # BẮT BUỘC BỎ QUA NẾU ĐƠN VỊ CÓ WEBSITE THỰC TẾ (co web bo qua)
-                            if _is_professional_website(place_web):
-                                print(f"  ⏭️ [Bỏ qua - Có Website thực tế]: {place_name[:35]} ({place_web[:25]}...)", flush=True)
-                                continue
+                        # Thực hiện cuộn xuống
+                        try:
+                            page.mouse.wheel(0, 4000)
+                            page.evaluate('''() => {
+                                const feed = document.querySelector('div[role="feed"]');
+                                if(feed) feed.scrollBy(0, 10000);
+                                window.scrollBy(0, 10000);
+                            }''')
+                        except Exception:
+                            pass
+                        time.sleep(1.0)
 
-                            if not p_str:
-                                print(f"  ⏳ [Chưa có SĐT di động]: {place_name[:35]}", flush=True)
-                                continue
+                    # Kết thúc cuộn, bắt đầu kiểm tra và lọc dữ liệu
+                    if status_callback:
+                        status_callback(f"🔄 [Nhân {worker_id} - {os_name}] Đang trích xuất chi tiết {len(seen_hrefs)} địa điểm...", -1)
+                    else:
+                        print(f"  🔄 [Nhân {worker_id} - {os_name}] Đang trích xuất chi tiết {len(seen_hrefs)} địa điểm...", flush=True)
 
-                            # BẮT BUỘC BỎ QUA NẾU LÀ TỔNG ĐÀI / MÁY BÀN
-                            ok, clean_p = _is_clean_phone(p_str)
-                            if not ok:
-                                print(f"  ⏭️ [Bỏ qua - Số Tổng đài/Máy bàn {p_str}]: {place_name[:35]}", flush=True)
-                                continue
+                    for place_url in seen_hrefs:
+                        if stop_event and stop_event.is_set(): break
+                        if len(all_leads) >= min_clean_target:
+                            break
+                        
+                        # Tìm thông tin thẻ cơ bản tương ứng với URL
+                        card_info = next((c for c in cards if c['href'] == place_url), None)
+                        if not card_info:
+                            continue
 
-                            if clean_p in seen_phones:
-                                continue
+                        place_name = card_info['name']
+                        if not place_name: continue
+                        
+                        # Loại bỏ các chuỗi rác
+                        if _is_place_id_or_junk(place_name): continue
+                        if any(j in place_name.lower() for j in JUNK_NAMES): continue
+                        if _DISTRICT_RE.match(place_name): continue
+                        
+                        place_addr = card_info['address']
+                        place_phone = card_info['phone']
+                        place_web = card_info['website']
 
-                            seen_phones.add(clean_p)
-                            print(f"  ✅ [ĐÃ LẤY LEAD #{len(all_leads)+1}] {place_name} | SĐT: {clean_p} | Địa chỉ: {place_addr[:40]}...", flush=True)
+                        # Check duplicate theo tên (tránh gọi nhiều lần hàm _is_duplicate_fn)
+                        if is_duplicate_fn and is_duplicate_fn(place_phone, place_name):
+                            if status_callback:
+                                status_callback(f"❌ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)", len(all_leads))
+                            else:
+                                print(f"  ❌ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)", flush=True)
+                            continue
 
-                            all_leads.append({
-                                "company_name": place_name,
-                                "contact_name": "",
-                                "email": "",
-                                "phone": clean_p,
-                                "website": "",
-                                "address": place_addr,
-                                "source": "",
-                                "source_reference": place_url,
-                            })
+                        p_str = place_phone
+                        if not p_str or not place_addr or len(place_addr) < 15:
+                            # Trực tiếp mở URL trang cơ sở để trích xuất 100% SĐT, Địa chỉ chi tiết có số nhà, Tên và Website
+                            d_page = None
+                            try:
+                                d_page = context.new_page()
+                                d_page.goto(place_url, wait_until="domcontentloaded", timeout=6000)
+                                try:
+                                    d_page.wait_for_selector('h1.DUwfe, h1', timeout=3000)
+                                    # Wait specifically for the phone button if we don't have phone
+                                    if not place_phone:
+                                        d_page.wait_for_selector('button[data-item-id*="phone"]', timeout=1500)
+                                except Exception:
+                                    pass
+                                time.sleep(1.0)
+                                detail = d_page.evaluate('''() => {
+                                    const h1 = document.querySelector('h1.DUwfe, h1');
+                                    const addrBtn = document.querySelector('button[data-item-id="address"]');
+                                    const phoneBtn = document.querySelector('button[data-item-id*="phone"]');
+                                    const webBtn = document.querySelector('a[data-item-id="authority"]');
+                                    return {
+                                        name: h1 ? h1.innerText.trim() : '',
+                                        address: addrBtn ? addrBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
+                                        phone: phoneBtn ? phoneBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
+                                        website: webBtn ? (webBtn.href || '') : ''
+                                    };
+                                }''')
+                                if detail.get("phone"):
+                                    p_str = detail["phone"]
+                                if detail.get("address") and len(detail["address"]) > len(place_addr):
+                                    place_addr = detail["address"]
+                                if detail.get("name") and len(detail["name"]) > len(place_name):
+                                    place_name = detail["name"]
+                                if detail.get("website"):
+                                    place_web = detail["website"]
+                            except Exception:
+                                pass
+                            finally:
+                                if d_page:
+                                    try:
+                                        d_page.close()
+                                    except Exception:
+                                        pass
 
-                    except Exception as exc:
-                        logger.warning(f"District '{district}' scrape lỗi: {exc}")
-                        continue
+                        if not p_str:
+                            # Ghép SĐT từ RPC leads dựa vào Name hoặc Address để tránh gán nhầm
+                            for ph, info in list(rpc_leads.items()):
+                                if ph in seen_phones: continue
+                                if info["name"] and (info["name"].lower() in place_name.lower() or place_name.lower() in info["name"].lower()):
+                                    p_str = ph
+                                    break
+                                if info["address"] and place_addr and (info["address"].lower() in place_addr.lower() or place_addr.lower() in info["address"].lower()):
+                                    p_str = ph
+                                    break
+
+                        # BẮT BUỘC BỎ QUA NẾU ĐƠN VỊ CÓ WEBSITE THỰC TẾ (co web bo qua)
+                        if _is_professional_website(place_web):
+                            if status_callback:
+                                status_callback(f"🚫 [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Có Web)", len(all_leads))
+                            else:
+                                print(f"  🚫 [Nhân {worker_id} - {os_name}] [Bỏ qua - Có Web]: {place_name[:30]} ({place_web[:20]}...)", flush=True)
+                            continue
+
+                        if not p_str:
+                            if status_callback:
+                                status_callback(f"⏳ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Chưa có SĐT)", len(all_leads))
+                            else:
+                                print(f"  ⏳ [Nhân {worker_id} - {os_name}] [Chưa có SĐT]: {place_name[:30]}", flush=True)
+                            continue
+
+                        # BẮT BUỘC BỎ QUA NẾU LÀ TỔNG ĐÀI / MÁY BÀN
+                        ok, clean_p = _is_clean_phone(p_str)
+                        if not ok:
+                            if status_callback:
+                                status_callback(f"⏭️ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Số bàn {p_str})", len(all_leads))
+                            else:
+                                print(f"  ⏭️ [Nhân {worker_id} - {os_name}] [Bỏ qua - Số bàn {p_str}]: {place_name[:30]}", flush=True)
+                            continue
+
+                        if clean_p in seen_phones:
+                            continue
+
+                        seen_phones.add(clean_p)
+                        
+                        all_leads.append({
+                            "company_name": place_name,
+                            "contact_name": "",
+                            "email": "",
+                            "phone": clean_p,
+                            "website": "",
+                            "address": place_addr,
+                            "source": "",
+                            "source_reference": place_url,
+                        })
+                        
+                        if status_callback:
+                            status_callback(f"🔎 [Nhân {worker_id} - {os_name}] {place_name[:25]} | {clean_p}", -1)
+                        else:
+                            print(f"  🔎 [Nhân {worker_id} - {os_name}] [ĐÃ TÌM THẤY LEAD] {place_name} | {clean_p}", flush=True)
+
+                except Exception as exc:
+                    logger.warning(f"Keyword '{keyword}' scrape lỗi: {exc}")
 
                 browser.close()
 

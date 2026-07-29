@@ -19,7 +19,7 @@ from leadhunter.presentation.cli.formatters.table_formatter import format_table
 
 
 @click.command()
-@click.option("--file", "-f", required=True, help="Path to .xlsx or .csv file to import")
+@click.option("--file", "-f", required=True, help="Path to .xlsx file to import")
 @click.option(
     "--format",
     "output_format",
@@ -43,16 +43,13 @@ def import_cmd(ctx: click.Context, file: str, output_format: str) -> None:
     try:
         from leadhunter.presentation.cli.factory import make_repository
         from leadhunter.infrastructure.adapters.excel_reader_adapter import ExcelReaderAdapter
-        from leadhunter.infrastructure.adapters.csv_reader_adapter import CsvReaderAdapter
 
         repo = make_repository(config)
 
         if ext in (".xlsx",):
             adapter = ExcelReaderAdapter()
-        elif ext in (".csv",):
-            adapter = CsvReaderAdapter()
         else:
-            click.echo(f"Error: Unsupported file type '{ext}'. Use .xlsx or .csv", err=True)
+            click.echo(f"Error: Unsupported file type '{ext}'. Use .xlsx", err=True)
             sys.exit(1)
 
         dedup_config = DeduplicationConfig()

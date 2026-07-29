@@ -45,6 +45,13 @@ CREATE INDEX IF NOT EXISTS idx_leads_created_at
 CREATE INDEX IF NOT EXISTS idx_leads_source
     ON leads (source);
 
+-- Indexes to eliminate full table scans during deduplication (find_duplicates)
+CREATE INDEX IF NOT EXISTS idx_leads_phone_normalized
+    ON leads (SUBSTR(replace(replace(replace(phone, ' ', ''),'-',''),'+',''), -9));
+
+CREATE INDEX IF NOT EXISTS idx_leads_company_lower
+    ON leads (lower(company_name));
+
 -- Full-text search helper columns (covered by regular indexes for LIKE queries)
 -- Note: SQLite FTS5 could be added in a future migration for better performance.
 

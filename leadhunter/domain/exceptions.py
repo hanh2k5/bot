@@ -417,3 +417,17 @@ class MigrationError(InfrastructureError):
         )
         self.migration_name = migration_name
         self.__cause__ = cause
+
+class GoogleMapsBlockedError(InfrastructureError):
+    """Raised when Google Maps blocks the scraping process (e.g., CAPTCHA, Too Many Requests, Network disconnect)."""
+    
+    error_code = "GOOGLE_MAPS_BLOCKED"
+
+    def __init__(self, reason: str, cause: Exception | None = None) -> None:
+        super().__init__(
+            f"Google Maps đã chặn hoặc từ chối kết nối. Nguyên nhân: {reason}. "
+            "Vui lòng đổi IP (bật/tắt 4G, dùng VPN) hoặc thử lại sau."
+        )
+        self.reason = reason
+        if cause:
+            self.__cause__ = cause

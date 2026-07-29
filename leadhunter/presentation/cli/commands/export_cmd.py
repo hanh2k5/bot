@@ -84,5 +84,26 @@ def export_cmd(
     if output_format == "json":
         click.echo(format_json(data))
     else:
-        click.echo("\n=== Export Complete ===")
-        click.echo(format_table([data]))
+        import os
+        file_name = os.path.basename(result.output_file_path)
+        dir_name = os.path.dirname(result.output_file_path)
+        time_str = result.executed_at[:19].replace("T", " ") if result.executed_at else "N/A"
+
+        click.echo()
+        click.secho("📦 ĐÓNG GÓI DỮ LIỆU THÀNH CÔNG!", fg="green", bold=True)
+        click.secho("───────────────────────────────────────────────────", fg="cyan")
+        
+        click.secho(" 🎯 Số lượng Lead : ", fg="yellow", nl=False)
+        click.secho(f"{result.record_count} số mới nhất", fg="white", bold=True)
+        
+        click.secho(" 📁 Tên file Excel: ", fg="yellow", nl=False)
+        click.secho(f"{file_name}", fg="white", bold=True)
+        
+        click.secho(" 📂 Thư mục lưu   : ", fg="yellow", nl=False)
+        click.secho(f"{dir_name}", fg="white")
+        
+        click.secho(" ⏰ Thời gian xuất: ", fg="yellow", nl=False)
+        click.secho(f"{time_str}", fg="white")
+        
+        click.secho("───────────────────────────────────────────────────", fg="cyan")
+        click.secho("✅ File đã sẵn sàng! Mở lên và sale ngay thôi sếp ơi!", fg="green", bold=True)

@@ -12,15 +12,18 @@ from leadhunter.presentation.cli.formatters.table_formatter import format_table
 
 
 @click.command()
-@click.option("--keyword", "-k", "keywords", multiple=True, required=True,
-              help="Keywords to scrape (e.g. 'spa', 'quan cafe'). Can specify multiple.")
+@click.argument("keywords", nargs=-1, required=True)
 @click.option(
     "--format", "output_format",
     type=click.Choice(["table", "json"], case_sensitive=False),
     default="table", help="Output format"
 )
+@click.option(
+    "--target", "-t",
+    type=int, default=80, help="Tổng số lượng Lead mục tiêu cần cào (Mặc định: 80)"
+)
 @click.pass_context
-def auto_scrape_cmd(ctx: click.Context, keywords: list[str], output_format: str) -> None:
+def auto_scrape_cmd(ctx: click.Context, keywords: tuple[str, ...], output_format: str, target: int) -> None:
     """Run daily automated scraper with smart filters (HCM, No Viettel, No Web)."""
     config = ctx.obj["config"]
 
@@ -57,20 +60,53 @@ def auto_scrape_cmd(ctx: click.Context, keywords: list[str], output_format: str)
             export_use_case=export_use_case
         )
         
-        parsed_keywords = []
-        for item in keywords:
-            for kw in item.split(","):
-                if kw.strip():
-                    parsed_keywords.append(kw.strip())
+        parsed_keywords = [k.strip() for k_str in keywords for k in k_str.split(",") if k.strip()]
+        if not parsed_keywords:
+            click.secho("❌ Không có từ khóa hợp lệ.", fg="red")
+            sys.exit(1)
 
-        result = use_case.execute(parsed_keywords)
+        result = use_case.execute(parsed_keywords, target=target)
+        click.secho(f"\n✅ Hoàn thành Auto-scrape! Kết quả đã được lưu.", fg="green")
 
     except LeadHunterError as exc:
-        click.echo(f"Error [{exc.error_code}]: {exc.message}", err=True)
+        if exc.error_code == "GOOGLE_MAPS_BLOCKED":
+            click.secho(f"\\n🚨 [LỖI NGHIÊM TRỌNG]: {exc.message}", fg="red", bold=True)
+            click.secho("=> Hướng giải quyết: Hãy thử đổi mạng Wi-Fi sang 4G, hoặc bật/tắt chế độ máy bay, hoặc dùng VPN.", fg="yellow")
+        else:
+            click.echo(f"Error [{exc.error_code}]: {exc.message}", err=True)
         sys.exit(1)
 
     if output_format == "json":
         click.echo(format_json(result))
     else:
-        click.echo("\n=== Daily Auto-Scrape Finished ===")
-        click.echo(format_table([result]))
+        import os
+        export_file = result.get("export_file", "")
+        file_name = os.path.basename(export_file) if export_file else "Không có file"
+        dir_name = os.path.dirname(export_file) if export_file else ""
+        
+        # Thống kê rác
+        web = result.get('skipped_has_website', 0)
+        viettel = result.get('skipped_viettel', 0)
+        not_hcm = result.get('skipped_not_hcm', 0)
+        dup = result.get('skipped_duplicate', 0)
+
+        click.echo()
+        click.secho("🎉 CHIẾN DỊCH ĐI SĂN HOÀN TẤT!", fg="green", bold=True)
+        click.secho("───────────────────────────────────────────────────", fg="cyan")
+        
+        click.secho(" 🎯 Thu hoạch    : ", fg="yellow", nl=False)
+        click.secho(f"{result.get('added_count', 0)} số mới", fg="white", bold=True)
+        
+        click.secho(" 🗑️ Đã vứt sọt rác: ", fg="red", nl=False)
+        click.secho(f"{web} web | {viettel} viettel | {not_hcm} ngoại thành | {dup} trùng", fg="white")
+        
+        click.secho(" 📁 Tên file     : ", fg="yellow", nl=False)
+        click.secho(f"{file_name}", fg="white", bold=True)
+        
+        click.secho(" 📂 Thư mục lưu  : ", fg="yellow", nl=False)
+        click.secho(f"{dir_name}", fg="white")
+        
+        click.secho("───────────────────────────────────────────────────", fg="cyan")
+        click.secho("✅ Đã lưu xong! Mở lên và chốt đơn thôi sếp ơi!", fg="green", bold=True)
+
+    sys.exit(0)

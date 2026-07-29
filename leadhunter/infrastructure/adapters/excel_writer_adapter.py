@@ -89,15 +89,21 @@ class ExcelWriterAdapter:
                 ]
                 ws.append(row)
 
-            # Format data cells and auto-adjust column widths
-            col_widths = {"A": 18, "B": 42, "C": 48, "D": 52, "E": 16}
+            # Format data cells and auto-adjust column widths để rộng rãi dễ nhập liệu
+            col_widths = {"A": 15, "B": 45, "C": 65, "D": 20, "E": 45}
             for col_letter, width in col_widths.items():
                 ws.column_dimensions[col_letter].width = width
 
             for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=5):
                 for cell in row:
                     cell.border = thin_border
-                    cell.alignment = Alignment(vertical="center")
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+
+            # Apply AutoFilter to the header row
+            ws.auto_filter.ref = f"A1:E{ws.max_row}"
+            
+            # Freeze the top row
+            ws.freeze_panes = "A2"
 
             # Write to temp file first (atomic write)
             wb.save(str(tmp_path))

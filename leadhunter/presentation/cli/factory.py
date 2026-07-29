@@ -7,7 +7,6 @@ from leadhunter.infrastructure.persistence.connection_manager import ConnectionM
 from leadhunter.infrastructure.persistence.sqlite_lead_repository import SqliteLeadRepository
 from leadhunter.infrastructure.persistence.migrations.migration_runner import MigrationRunner
 from leadhunter.infrastructure.adapters.excel_reader_adapter import ExcelReaderAdapter
-from leadhunter.infrastructure.adapters.csv_reader_adapter import CsvReaderAdapter
 from leadhunter.infrastructure.adapters.web_scraper_adapter import WebScraperAdapter
 from leadhunter.infrastructure.adapters.excel_writer_adapter import ExcelWriterAdapter
 from leadhunter.domain.services.scoring_service import ScoringRule, ScoringRules

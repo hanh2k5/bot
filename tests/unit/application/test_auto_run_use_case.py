@@ -20,11 +20,11 @@ def test_auto_run_filters_correctly() -> None:
     # - 1 with website (should be skipped)
     # - 1 in Hanoi (should be skipped)
     # - 1 valid in HCM without website (should be imported)
-    maps_scraper.scrape.return_value = [
+    maps_scraper.scrape_fast.return_value = [
         {
             "company_name": "Spa A",
-            "phone": "0981112222", # Viettel, but filtered at phone step
-            "website": "https://has-web.com",
+            "phone": "0981112222", # Viettel
+            "website": "https://has-web.com", # Has web
             "address": "District 1, Ho Chi Minh",
             "source": "google_maps"
         },
@@ -40,6 +40,20 @@ def test_auto_run_filters_correctly() -> None:
             "phone": "0904445555", # Mobi (valid)
             "website": "",
             "address": "Binh Thanh, Ho Chi Minh",
+            "source": "google_maps"
+        },
+        {
+            "company_name": "Spa D",
+            "phone": "0968889999", # Viettel
+            "website": "",
+            "address": "District 3, Ho Chi Minh",
+            "source": "google_maps"
+        },
+        {
+            "company_name": "Spa E",
+            "phone": "0917778888", # Vina (valid)
+            "website": "",
+            "address": "Tan Binh, Ho Chi Minh",
             "source": "google_maps"
         }
     ]
@@ -75,7 +89,6 @@ def test_auto_run_filters_correctly() -> None:
     use_case = AutoRunUseCase(
         repository=repo,
         maps_scraper=maps_scraper,
-        fb_scraper=fb_scraper,
         export_use_case=export_use_case
     )
 
@@ -88,7 +101,7 @@ def test_auto_run_filters_correctly() -> None:
     assert result["skipped_viettel"] == 1       # Spa D
     assert result["skipped_has_website"] == 1   # Spa A
     assert result["skipped_not_hcm"] == 1       # Spa B
-    assert result["export_file"] == "exports/telesale_hcm_test.xlsx"
+    assert result["export_file"].startswith("exports/nguon") and result["export_file"].endswith(".xlsx")
 
     # Verify repository add calls
     assert repo.add.call_count == 2

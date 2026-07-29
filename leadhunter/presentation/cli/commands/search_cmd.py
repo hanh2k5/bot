@@ -22,7 +22,7 @@ _DISPLAY_COLUMNS = [
 @click.option("--status", default=None, help="Filter by status (NEW, VALIDATED, etc.)")
 @click.option("--score-min", "score_min", type=int, default=None, help="Minimum score (0-100)")
 @click.option("--score-max", "score_max", type=int, default=None, help="Maximum score (0-100)")
-@click.option("--source", default=None, help="Filter by source (excel, csv, web)")
+@click.option("--source", default=None, help="Filter by source (excel, web)")
 @click.option("--keyword", "-k", default=None, help="Keyword search on company, contact, email")
 @click.option("--from", "created_from", default=None, help="Created from date (ISO 8601)")
 @click.option("--to", "created_to", default=None, help="Created to date (ISO 8601)")

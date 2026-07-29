@@ -91,7 +91,7 @@ class ImportLeadsFromFileUseCase:
         """Run the import pipeline for the given file.
 
         Args:
-            file_path: Absolute or relative path to the .xlsx or .csv file.
+            file_path: Absolute or relative path to the .xlsx file.
 
         Returns:
             ImportResultDTO with success_count, error_count, duplicate_count,

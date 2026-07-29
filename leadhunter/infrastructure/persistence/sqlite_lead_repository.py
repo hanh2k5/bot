@@ -94,6 +94,26 @@ class SqliteLeadRepository(LeadRepository):
             raise DatabaseError("INSERT leads", exc) from exc
         return lead
 
+    def rollback_last_batch(self) -> int:
+        """Xóa toàn bộ lead thuộc về đợt cào (import_batch_id) gần nhất."""
+        try:
+            with self._cm.transaction() as conn:
+                # Tìm import_batch_id mới nhất
+                row = conn.execute(
+                    "SELECT import_batch_id FROM leads WHERE import_batch_id IS NOT NULL ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                
+                if not row or not row[0]:
+                    return 0
+                
+                batch_id = row[0]
+                
+                # Xóa tất cả lead có batch_id này
+                cursor = conn.execute("DELETE FROM leads WHERE import_batch_id = ?", (batch_id,))
+                return cursor.rowcount
+        except Exception as exc:
+            raise DatabaseError("ROLLBACK last batch", exc) from exc
+
     def get_by_id(self, lead_id: str) -> Optional[Lead]:
         """Retrieve a Lead by its UUID (REQ-030).
 

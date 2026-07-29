@@ -62,28 +62,21 @@ def cli(ctx: click.Context, verbose: bool) -> None:
     _setup(ctx, verbose)
 
 
-# Import and attach all subcommands
-from leadhunter.presentation.cli.commands.import_cmd import import_cmd
 from leadhunter.presentation.cli.commands.scrape_cmd import scrape_cmd
-from leadhunter.presentation.cli.commands.search_cmd import search_cmd
 from leadhunter.presentation.cli.commands.update_status_cmd import update_status_cmd
-from leadhunter.presentation.cli.commands.score_cmd import score_cmd
 from leadhunter.presentation.cli.commands.export_cmd import export_cmd
 from leadhunter.presentation.cli.commands.merge_cmd import merge_cmd
-from leadhunter.presentation.cli.commands.migrate_cmd import migrate_cmd
 from leadhunter.presentation.cli.commands.auto_scrape_cmd import auto_scrape_cmd
 from leadhunter.presentation.cli.commands.reset_db_cmd import reset_db_cmd
+from leadhunter.presentation.cli.commands.rollback_cmd import rollback_cmd
 
-cli.add_command(import_cmd, name="import")
 cli.add_command(scrape_cmd, name="scrape")
-cli.add_command(search_cmd, name="search")
 cli.add_command(update_status_cmd, name="update-status")
-cli.add_command(score_cmd, name="score")
 cli.add_command(export_cmd, name="export")
 cli.add_command(merge_cmd, name="merge-duplicate")
-cli.add_command(migrate_cmd, name="migrate")
 cli.add_command(auto_scrape_cmd, name="auto-scrape")
 cli.add_command(reset_db_cmd, name="reset-db")
+cli.add_command(rollback_cmd, name="rollback")
 
 
 def main() -> None:
@@ -105,19 +98,38 @@ def main() -> None:
     except SystemExit as exc:
         sys.exit(exc.code)
     except Exception as exc:
-        # REQ-066: No raw Python traceback on stdout
-        click.echo(
-            f"\nUnexpected error: {exc}\n"
-            "Please check the log file for details.",
-            err=True,
+        logger.error(
+            "Unexpected system error",
+            exc_info=exc,
+            extra={"context": {"error": str(exc)}},
         )
-        # LOG-006: Log full traceback at ERROR/CRITICAL level
-        logger.critical(
-            "Unhandled exception in CLI",
-            exc_info=True,
-            extra={"context": {"error_type": type(exc).__name__}},
-        )
+        print(f"Error: {exc}\n{traceback.format_exc()}", file=sys.stderr)
         sys.exit(2)
+
+def cao_main() -> None:
+    """Standalone entry point for the 'cao' shortcut."""
+    import sys
+    # Insert 'auto-scrape' as the subcommand so main() routes it correctly
+    sys.argv.insert(1, "auto-scrape")
+    main()
+
+def reset_main() -> None:
+    """Standalone entry point for the 'reset' shortcut."""
+    import sys
+    sys.argv.insert(1, "reset-db")
+    main()
+
+def xuat_main() -> None:
+    """Standalone entry point for the 'xuat' shortcut."""
+    import sys
+    sys.argv.insert(1, "export")
+    main()
+
+def huy_main() -> None:
+    """Standalone entry point for the 'huy' shortcut."""
+    import sys
+    sys.argv.insert(1, "rollback")
+    main()
 
 
 if __name__ == "__main__":

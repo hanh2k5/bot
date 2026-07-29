@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+import time
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -66,7 +70,7 @@ def _is_in_hcm(address: str) -> bool:
         return True
         
     # Vẫn cho qua nếu địa chỉ không chứa từ khóa tỉnh khác
-    other_provinces = ["hà nội", "đà nẵng", "hải phòng", "cần thơ", "đồng nai", "bình dương", "long an"]
+    other_provinces = ["hà nội", "ha noi", "đà nẵng", "da nang", "hải phòng", "hai phong", "cần thơ", "can tho", "đồng nai", "dong nai", "bình dương", "binh duong", "long an"]
     if any(p in a for p in other_provinces):
         return False
         
@@ -180,8 +184,19 @@ def _build_lead(raw: dict, phone_vo, import_batch_id: str) -> Lead | None:
 # ---------------------------------------------------------------------------
 
 def _generate_queries(kw: str) -> list[str]:
-    """Trả về chính xác từ khóa người dùng nhập (không tự đẻ thêm từ khóa rác)."""
-    return [kw.lower().strip()]
+    """Nếu người dùng nhập từ khóa chung chung, tự động thêm các quận HCM để quét được nhiều số hơn."""
+    base_kw = kw.lower().strip()
+    
+    # Nếu từ khóa đã có chữ "quận", "huyện", "thủ đức", "hcm" thì không thêm nữa
+    if any(x in base_kw for x in ["quận", "huyện", "q1", "q2", "q3", "thủ đức", "hcm", "hồ chí minh"]):
+        return [base_kw]
+
+    hcm_districts = [
+        "Quận 1", "Quận 2", "Quận 3", "Quận 4", "Quận 5", "Quận 6", "Quận 7", "Quận 8", 
+        "Quận 9", "Quận 10", "Quận 11", "Quận 12", "Tân Bình", "Gò Vấp", "Bình Thạnh", 
+        "Phú Nhuận", "Tân Phú", "Bình Tân", "Thủ Đức", "Hóc Môn", "Củ Chi", "Nhà Bè", "Bình Chánh"
+    ]
+    return [f"{base_kw} {dist}" for dist in hcm_districts]
 
 
 # ---------------------------------------------------------------------------
@@ -205,11 +220,12 @@ class AutoRunUseCase:
     # Public API
     # -----------------------------------------------------------------------
 
-    def execute(self, keywords: list[str]) -> dict[str, int | str]:
+    def execute(self, keywords: list[str], target: int = 80) -> dict[str, int | str]:
         """Chạy pipeline cào lead cho danh sách từ khóa.
 
         Args:
             keywords: Danh sách từ khóa tìm kiếm (vd: ["quán cafe", "spa"]).
+            target: Số lượng lead hợp lệ cần thu thập.
 
         Returns:
             Dict tổng hợp kết quả: số lead thêm, thống kê bỏ qua, đường dẫn file xuất.
@@ -225,72 +241,162 @@ class AutoRunUseCase:
         # Tập SĐT đã thấy trong đợt này (tránh trùng nội bộ)
         batch_phones: set[str] = set()
 
-        # Mục tiêu: đúng 80 lead sạch mỗi đợt
-        # Mục tiêu: đúng 80 lead sạch mỗi đợt
-        # Mục tiêu: đúng 80 lead sạch mỗi đợt
-        TARGET = 80
+        TARGET = target
 
         # ----------------------------------------------------------------
         # BƯỚC 1: Cào dữ liệu thô từ Google Maps (Thu thập đủ TARGET lead TỔNG CỘNG)
         # ----------------------------------------------------------------
-        print(f"\n🚀 Bắt đầu cào tự động cho các từ khóa: {keywords}", flush=True)
+        print(f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3 Nhân Đa Luồng", flush=True)
 
+        print_lock = threading.Lock()
+        data_lock = threading.Lock()
+        stop_event = threading.Event()
+
+        def _print_status(status_text: str, current_count: int = -1, worker_id: int = 1):
+            with print_lock:
+                display_count = len(batch_leads)
+                if display_count >= TARGET:
+                    display_count = TARGET
+                
+                p = int((display_count / TARGET) * 100) if TARGET > 0 else 100
+                t_len = 20
+                pos = int((display_count / TARGET) * t_len) if TARGET > 0 else t_len
+                if pos > t_len: pos = t_len
+                
+                bird_segment = f"🏍︎({display_count}/{TARGET})"
+                left_dashes = "-" * pos
+                right_dashes = "-" * (t_len - pos)
+                
+                b = f"\033[1m0%\033[0m \033[95m{left_dashes}{bird_segment}{right_dashes}>\033[0m \033[1m100%\033[0m"
+                # Chỉ in các log hệ thống, ẨN các log dữ liệu cào/bỏ qua theo ý sếp
+                sys.stdout.write("\033[2K\r")
+                if status_text and not any(x in status_text for x in ["Chốt đơn", "Bỏ qua", "Tìm thấy", "ĐÃ TÌM THẤY", "ĐÃ LẤY"]):
+                    if "✅" in status_text: status_text = f"\033[92m{status_text}\033[0m"
+                    elif "❌" in status_text: status_text = f"\033[90m{status_text}\033[0m"
+                    elif "⚠️" in status_text: status_text = f"\033[93m{status_text}\033[0m"
+                    elif "🔄" in status_text: status_text = f"\033[96m{status_text}\033[0m"
+                    elif "🔍" in status_text: status_text = f"\033[94m{status_text}\033[0m"
+                    sys.stdout.write(f"  {status_text}\n")
+
+                sys.stdout.write(f"  {b}\r")
+                sys.stdout.flush()
+
+        def dup_check_fn(p: str, n: str):
+            with data_lock:
+                return _is_duplicate(p, n, batch_phones, self._repository)
+
+        # Tính chỉ tiêu cho từng từ khóa (chia đều, phần dư cộng vào các từ khóa đầu)
+        targets_by_kw = {}
+        counts_by_kw = {}
+        if TARGET > 0 and len(keywords) > 0:
+            base_tgt = TARGET // len(keywords)
+            rem_tgt = TARGET % len(keywords)
+            for i, kw in enumerate(keywords):
+                targets_by_kw[kw] = base_tgt + (1 if i < rem_tgt else 0)
+                counts_by_kw[kw] = 0
+        else:
+            for kw in keywords:
+                targets_by_kw[kw] = 999999
+                counts_by_kw[kw] = 0
+
+        all_queries = []
         for original_kw in keywords:
-            if len(batch_leads) >= TARGET:
-                break
-            
-            queries_for_kw = _generate_queries(original_kw)
-            for kw in queries_for_kw:
+            for q in _generate_queries(original_kw):
+                all_queries.append((original_kw, q))
+
+        def _worker_task(original_kw: str, kw: str, worker_id: int):
+            with data_lock:
                 if len(batch_leads) >= TARGET:
-                    break
-                print(f"\n🔍 [Đang cào Google Maps] Từ khóa: '{kw}' | Đã tích lũy: {len(batch_leads)}/{TARGET} lead sạch...", flush=True)
-                raw_leads = self._maps_scraper.scrape_fast(kw, min_clean_target=TARGET)
-                logger.info(f"'{kw}' → {len(raw_leads)} kết quả thô từ Google Maps")
+                    return
+                if counts_by_kw[original_kw] >= targets_by_kw[original_kw]:
+                    return
+            
+            _print_status(f"🔄 [Nhân {worker_id}] Bắt đầu quét: '{kw}'", worker_id=worker_id)
+            
+            raw_leads = self._maps_scraper.scrape_fast(
+                kw, 
+                min_clean_target=30, # Mỗi từ khóa lấy tối đa 30 kết quả thô, chia đều cho các quận
+                status_callback=lambda msg, c: _print_status(msg, c, worker_id),
+                is_duplicate_fn=dup_check_fn,
+                worker_id=worker_id,
+                stop_event=stop_event
+            )
+            
+            logger.info(f"[Nhân {worker_id}] '{kw}' → {len(raw_leads)} kết quả thô")
 
-                # ----------------------------------------------------------------
-                # BƯỚC 2: Lọc từng kết quả thô
-                # ----------------------------------------------------------------
-                for raw in raw_leads:
+            for raw in raw_leads:
+                with data_lock:
                     if len(batch_leads) >= TARGET:
-                        break
+                        stop_event.set()
+                        return
+                    if counts_by_kw[original_kw] >= targets_by_kw[original_kw]:
+                        return
 
-                    name_val = raw.get("company_name") or raw.get("name", "")
-                    if not _is_valid_name(name_val):
-                        continue
+                time.sleep(0.1)  # Giảm delay vì chạy đa luồng
 
-                    # Lọc: đã có website → bỏ qua
-                    if _has_website(raw):
-                        stats["has_web"] += 1
-                        continue
+                name_val = raw.get("company_name") or raw.get("name", "")
+                if not _is_valid_name(name_val):
+                    continue
 
-                    # Lọc: không thuộc TP.HCM → bỏ qua
-                    if not _is_in_hcm(raw.get("address", "")):
-                        stats["not_hcm"] += 1
-                        continue
+                if _has_website(raw):
+                    with data_lock: stats["has_web"] += 1
+                    _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Website)")
+                    continue
 
-                    # Lọc: SĐT không hợp lệ / Viettel / tổng đài → bỏ qua
-                    valid, phone_vo = _is_valid_phone(raw.get("phone", ""))
-                    if not valid:
-                        stats["viettel"] += 1
-                        continue
+                if not _is_in_hcm(raw.get("address", "")):
+                    with data_lock: stats["not_hcm"] += 1
+                    _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Ngoài HCM)")
+                    continue
 
-                    # Lọc: số trùng (trong đợt hoặc trong CSDL) → bỏ qua
+                valid, phone_vo = _is_valid_phone(raw.get("phone", ""))
+                if not valid:
+                    with data_lock: stats["viettel"] += 1
+                    _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Số rác/Viettel)")
+                    continue
+
+                with data_lock:
+                    if len(batch_leads) >= TARGET:
+                        stop_event.set()
+                        return
+                    if counts_by_kw[original_kw] >= targets_by_kw[original_kw]:
+                        return
+                        
                     if _is_duplicate(phone_vo.value, raw.get("company_name", ""), batch_phones, self._repository):
                         stats["dup"] += 1
+                        _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Trùng lặp)")
                         continue
 
-                    # Tạo entity Lead từ dữ liệu đã qua lọc
                     lead = _build_lead(raw, phone_vo, import_batch_id)
                     if not lead:
                         continue
 
-                    # ----------------------------------------------------------------
-                    # BƯỚC 3: Lưu lead hợp lệ vào Database
-                    # ----------------------------------------------------------------
                     self._repository.add(lead)
                     batch_leads.append(lead)
                     batch_phones.add(phone_vo.value)
-                    print(f"  💾 [Đã lưu CSDL #{len(batch_leads)}] {lead.company_name} | SĐT: {lead.phone} | Địa chỉ: {lead.address[:35]}...", flush=True)
+                    counts_by_kw[original_kw] += 1
+                    _print_status(f"✅ [Nhân {worker_id}] Chốt đơn: {lead.company_name[:20]} | {lead.phone}")
+
+        # Chạy 3 luồng song song theo yêu cầu của user
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = []
+            for idx, kw in enumerate(all_queries):
+                worker_id = (idx % 3) + 1
+                original_kw, q_str = kw
+                futures.append(executor.submit(_worker_task, original_kw, q_str, worker_id))
+            
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Lỗi ở worker: {e}")
+                
+                with data_lock:
+                    if len(batch_leads) >= TARGET:
+                        stop_event.set()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        break
+
+        print("\n\n") # Xuống dòng khi kết thúc để giữ thanh tiến trình
 
         logger.info(
             f"Hoàn tất | Thêm: {len(batch_leads)} | "

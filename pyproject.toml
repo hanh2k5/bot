@@ -18,11 +18,15 @@ dependencies = [
     "tqdm==4.67.1",
     "PyYAML>=6.0",
     "playwright>=1.49.0",
+    "playwright-stealth>=2.0.3",
 ]
 
 [project.scripts]
 leadhunter = "leadhunter.presentation.cli.main:main"
-detu = "leadhunter.presentation.cli.main:main"
+cao = "leadhunter.presentation.cli.main:cao_main"
+reset = "leadhunter.presentation.cli.main:reset_main"
+xuat = "leadhunter.presentation.cli.main:xuat_main"
+huy = "leadhunter.presentation.cli.main:huy_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

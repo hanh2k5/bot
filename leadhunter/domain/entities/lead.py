@@ -45,7 +45,7 @@ class Lead:
         phone: Normalised phone number string.
         website: Normalised website URL string.
         address: Address (whitespace-normalised, no deep parsing in Phase 1).
-        source: Source channel identifier ('excel', 'csv', 'web').
+        source: Source channel identifier ('excel', 'web').
         source_reference: Original filename or URL that produced this lead.
         status: Current lifecycle status.
         score: Integer score 0–100.
