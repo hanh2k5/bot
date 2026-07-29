@@ -300,14 +300,15 @@ class GoogleMapsScraper:
                 browser = p.chromium.launch(**launch_kwargs)
                 context = browser.new_context(
                     viewport={"width": 1280, "height": 800},
-                    user_agent=ua_string
+                    user_agent=ua_string,
+                    locale="vi-VN"  
                 )
                 context.route("**/*.{png,jpg,jpeg,gif,svg,webp,woff,woff2,ttf,otf}", lambda r: r.abort())
                 page = context.new_page()
                 page.on("response", handle_response)
 
-                # Scrape directly with the exact keyword provided
-                url = f"https://www.google.com/maps/search/{urllib.parse.quote(keyword)}"
+              # Scrape directly with the exact keyword provided
+                url = f"https://www.google.com/maps/search/{urllib.parse.quote(keyword)}?hl=vi"
 
                 try:
                     try:
@@ -359,7 +360,7 @@ class GoogleMapsScraper:
                                     els = page.query_selector_all('a.hfpxzc, a.HFpxzc')
                                     if i < len(els):
                                         els[i].click(force=True, timeout=1000)
-                                        time.sleep(0.3)
+                                        time.sleep(1.5)
                                 except Exception:
                                     pass
 
@@ -436,7 +437,7 @@ class GoogleMapsScraper:
                                         d_page.wait_for_selector('button[data-item-id*="phone"]', timeout=1500)
                                 except Exception:
                                     pass
-                                time.sleep(1.0)
+                                time.sleep(2.5)
                                 detail = d_page.evaluate('''() => {
                                     const h1 = document.querySelector('h1.DUwfe, h1');
                                     const addrBtn = document.querySelector('button[data-item-id="address"]');
