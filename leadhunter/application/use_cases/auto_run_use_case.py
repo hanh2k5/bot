@@ -2,7 +2,7 @@
 
 Điều phối toàn bộ quy trình cào lead tự động hàng ngày:
   1. Cào dữ liệu thô từ Google Maps.
-  2. Lọc (HCM, SĐT hợp lệ, không Viettel, không có website, không trùng).
+  2. Lọc (HCM, SĐT hợp lệ, không Viettel, không có website, không trùng, tên phải khớp từ khóa).
   3. Lưu vào Database.
   4. Xuất file Excel.
 """
@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from leadhunter.application.ports.lead_repository import LeadRepository
     from leadhunter.infrastructure.adapters.google_maps_scraper import GoogleMapsScraper
-    from leadhunter.application.use_cases.export_leads_to_excel import ExportLeadsToExcelUseCase
+    from leadhunter.application.use_cases.export_leads_to_excel import (
+        ExportLeadsToExcelUseCase,
+    )
 
 from leadhunter.domain.entities.lead import Lead, LeadStatus
 from leadhunter.domain.services.telecom_service import is_viettel, is_tong_dai
@@ -35,10 +37,37 @@ logger = logging.getLogger(__name__)
 
 # Danh sách từ khoá để xác nhận địa chỉ thuộc TP.HCM
 _HCM_KEYWORDS = [
-    "hồ chí minh", "ho chi minh", "hcm", "tphcm", "tp.hcm", "tp hcm",
-    "quận 1", "quận 2", "quận 3", "quận 4", "quận 5", "quận 6", "quận 7", "quận 8", "quận 9", "quận 10", "quận 11", "quận 12",
-    "tân bình", "gò vấp", "bình thạnh", "phú nhuận", "tân phú", "bình tân", "thủ đức", "hóc môn", "củ chi", "nhà bè", "cần giờ",
-    "việt nam", "vietnam"
+    "hồ chí minh",
+    "ho chi minh",
+    "hcm",
+    "tphcm",
+    "tp.hcm",
+    "tp hcm",
+    "quận 1",
+    "quận 2",
+    "quận 3",
+    "quận 4",
+    "quận 5",
+    "quận 6",
+    "quận 7",
+    "quận 8",
+    "quận 9",
+    "quận 10",
+    "quận 11",
+    "quận 12",
+    "tân bình",
+    "gò vấp",
+    "bình thạnh",
+    "phú nhuận",
+    "tân phú",
+    "bình tân",
+    "thủ đức",
+    "hóc môn",
+    "củ chi",
+    "nhà bè",
+    "cần giờ",
+    "việt nam",
+    "vietnam",
 ]
 
 
@@ -46,49 +75,87 @@ _HCM_KEYWORDS = [
 # Các hàm lọc độc lập (DRY — mỗi hàm 1 nhiệm vụ duy nhất)
 # ---------------------------------------------------------------------------
 
+
 def _is_in_hcm(address: str) -> bool:
-    """Kiểm tra địa chỉ có thuộc HCM không."""
+    """Kiểm tra địa chỉ CHÍNH QUY thuộc Tam Giác Vàng: HCM, Bình Dương, Đồng Nai."""
     if not address or len(address.strip()) < 5:
-        # Nếu không trích xuất được địa chỉ nhưng search theo quận HCM thì vẫn tin cậy
         return True
-        
-    # Loại bỏ các địa chỉ "giả" (Plus Codes) như: 4HW7+54G, Ấp kiến An...
+
     import re
+
     if re.match(r"^[A-Z0-9]{2,4}\+[A-Z0-9]{2,3}", address.strip()):
         return False
 
     a = address.lower()
-    if "hồ chí minh" in a or "ho chi minh" in a or "hcm" in a or "tphcm" in a or "tp.hcm" in a:
-        return True
-        
-    hcm_districts = [
-        "quận 1", "quận 2", "quận 3", "quận 4", "quận 5", "quận 6", "quận 7", "quận 8", "quận 9", "quận 10",
-        "quận 11", "quận 12", "tân bình", "bình tân", "tân phú", "phú nhuận", "gò vấp", "bình thạnh",
-        "thủ đức", "nhà bè", "hóc môn", "củ chi", "bình chánh", "cần giờ"
+
+    valid_provinces = [
+        "hồ chí minh",
+        "hcm",
+        "tphcm",
+        "bình dương",
+        "binh duong",
+        "đồng nai",
+        "dong nai",
+        "biên hòa",
+        "dĩ an",
+        "thuận an",
+        "thủ dầu một",
+        "long thành",
     ]
-    if any(d in a for d in hcm_districts):
+    if any(p in a for p in valid_provinces):
         return True
-        
-    # Vẫn cho qua nếu địa chỉ không chứa từ khóa tỉnh khác
-    other_provinces = ["hà nội", "ha noi", "đà nẵng", "da nang", "hải phòng", "hai phong", "cần thơ", "can tho", "đồng nai", "dong nai", "bình dương", "binh duong", "long an"]
-    if any(p in a for p in other_provinces):
+
+    banned_provinces = [
+        "hà nội",
+        "đà nẵng",
+        "hải phòng",
+        "cần thơ",
+        "long an",
+        "vũng tàu",
+        "tây ninh",
+        "bình phước",
+        "lâm đồng",
+        "tiền giang",
+        "bến tre",
+        "nha trang",
+    ]
+    if any(p in a for p in banned_provinces):
         return False
-        
+
     return True
 
 
 def _has_website(raw: dict) -> bool:
-    """Trả về True nếu đơn vị đã có website (không phải mục tiêu bán dịch vụ)."""
+    """Trả về True nếu đơn vị đã có website."""
     return bool(raw.get("website", "").strip())
 
 
 _JUNK_UI_BUTTONS = {
-    "see nearby", "see similar places", "similar places", "directions", "overview", "reviews",
-    "restroom", "gender-neutral restroom", "paid street parking", "street parking", "parking",
-    "education center", "training center", "photo", "recycling", "payments",
-    "claim this business", "debit cards", "open 24 hours", "full restoration service",
-    "checks", "accessible entrance", "wheelchair"
+    "see nearby",
+    "see similar places",
+    "similar places",
+    "directions",
+    "overview",
+    "reviews",
+    "restroom",
+    "gender-neutral restroom",
+    "paid street parking",
+    "street parking",
+    "parking",
+    "education center",
+    "training center",
+    "photo",
+    "recycling",
+    "payments",
+    "claim this business",
+    "debit cards",
+    "open 24 hours",
+    "full restoration service",
+    "checks",
+    "accessible entrance",
+    "wheelchair",
 }
+
 
 def _is_valid_name(name: str) -> bool:
     """Kiểm tra tên có hợp lệ (loại bỏ nút bấm UI, Place ID, mã hash ngẫu nhiên)."""
@@ -98,7 +165,13 @@ def _is_valid_name(name: str) -> bool:
         return False
     nm_clean = name.strip()
     nm_lower = nm_clean.lower()
-    if "|" in nm_clean or nm_clean.startswith("0a") or nm_clean.startswith("ChI") or nm_clean.startswith("0x") or nm_clean.startswith("CIH"):
+    if (
+        "|" in nm_clean
+        or nm_clean.startswith("0a")
+        or nm_clean.startswith("ChI")
+        or nm_clean.startswith("0x")
+        or nm_clean.startswith("CIH")
+    ):
         return False
     if " " not in nm_clean and len(nm_clean) >= 7:
         has_upper = any(c.isupper() for c in nm_clean)
@@ -112,12 +185,7 @@ def _is_valid_name(name: str) -> bool:
 
 
 def _is_valid_phone(phone_raw: str) -> tuple[bool, object | None]:
-    """Chuẩn hóa SĐT và kiểm tra hợp lệ (không Viettel, không tổng đài).
-
-    Returns:
-        (True, phone_vo)  — nếu SĐT hợp lệ.
-        (False, None)     — nếu SĐT không hợp lệ hoặc cần bỏ qua.
-    """
+    """Chuẩn hóa SĐT và kiểm tra hợp lệ (không Viettel, không tổng đài)."""
     if not phone_raw:
         return False, None
 
@@ -140,25 +208,18 @@ def _is_duplicate(
     batch_seen_phones: set[str],
     repository: "LeadRepository",
 ) -> bool:
-    """Kiểm tra SĐT đã tồn tại chưa (trong đợt hiện tại hoặc trong CSDL lịch sử).
-
-    DRY: gom 2 bước kiểm tra trùng thành 1 hàm duy nhất.
-    """
-    # Trùng trong cùng đợt cào hôm nay
+    """Kiểm tra SĐT đã tồn tại chưa (trong đợt hiện tại hoặc trong CSDL lịch sử)."""
     if phone_value in batch_seen_phones:
         return True
 
-    # Trùng với CSDL lịch sử từ trước đến nay
-    dups = repository.find_duplicates(company_name=company_name.lower(), phone=phone_value)
+    dups = repository.find_duplicates(
+        company_name=company_name.lower(), phone=phone_value
+    )
     return bool(dups)
 
 
 def _build_lead(raw: dict, phone_vo, import_batch_id: str) -> Lead | None:
-    """Tạo entity Lead từ dữ liệu thô.
-
-    Returns:
-        Lead entity nếu thành công, None nếu tên công ty không hợp lệ.
-    """
+    """Tạo entity Lead từ dữ liệu thô."""
     try:
         company_vo = normalize_company_name(raw.get("company_name", ""))
     except Exception:
@@ -183,25 +244,51 @@ def _build_lead(raw: dict, phone_vo, import_batch_id: str) -> Lead | None:
 # Use Case chính
 # ---------------------------------------------------------------------------
 
+
 def _generate_queries(kw: str) -> list[str]:
-    """Nếu người dùng nhập từ khóa chung chung, tự động thêm các quận HCM để quét được nhiều số hơn."""
-    base_kw = kw.lower().strip()
-    
-    # Nếu từ khóa đã có chữ "quận", "huyện", "thủ đức", "hcm" thì không thêm nữa
-    if any(x in base_kw for x in ["quận", "huyện", "q1", "q2", "q3", "thủ đức", "hcm", "hồ chí minh"]):
+    """Tự động rải quân đều khắp 3 vùng: HCM, Bình Dương, Đồng Nai."""
+    base_kw = f'"{kw.lower().strip()}"'
+
+    if any(
+        x in base_kw
+        for x in [
+            "quận",
+            "huyện",
+            "thành phố",
+            "hcm",
+            "bình dương",
+            "đồng nai",
+            "biên hòa",
+            "dĩ an",
+        ]
+    ):
         return [base_kw]
 
-    hcm_districts = [
-        "Quận 1", "Quận 2", "Quận 3", "Quận 4", "Quận 5", "Quận 6", "Quận 7", "Quận 8", 
-        "Quận 9", "Quận 10", "Quận 11", "Quận 12", "Tân Bình", "Gò Vấp", "Bình Thạnh", 
-        "Phú Nhuận", "Tân Phú", "Bình Tân", "Thủ Đức", "Hóc Môn", "Củ Chi", "Nhà Bè", "Bình Chánh"
+    locations = [
+        "Quận 1",
+        "Biên Hòa",
+        "Dĩ An",
+        "Quận 7",
+        "Thuận An",
+        "Long Thành",
+        "Quận 9",
+        "Thủ Dầu Một",
+        "Trảng Bom",
+        "Tân Bình",
+        "Bến Cát",
+        "Nhơn Trạch",
+        "Gò Vấp",
+        "Tân Uyên",
+        "Long Khánh",
+        "Thủ Đức",
+        "Bàu Bàng",
+        "Cẩm Mỹ",
+        "Bình Thạnh",
+        "Quận 10",
+        "Quận 12",
     ]
-    return [f"{base_kw} {dist}" for dist in hcm_districts]
+    return [f"{base_kw} {loc}" for loc in locations]
 
-
-# ---------------------------------------------------------------------------
-# Use Case chính
-# ---------------------------------------------------------------------------
 
 class AutoRunUseCase:
     """Điều phối quy trình cào lead tự động hàng ngày."""
@@ -216,66 +303,58 @@ class AutoRunUseCase:
         self._maps_scraper = maps_scraper
         self._export_use_case = export_use_case
 
-    # -----------------------------------------------------------------------
-    # Public API
-    # -----------------------------------------------------------------------
-
     def execute(self, keywords: list[str], target: int = 80) -> dict[str, int | str]:
-        """Chạy pipeline cào lead cho danh sách từ khóa.
-
-        Args:
-            keywords: Danh sách từ khóa tìm kiếm (vd: ["quán cafe", "spa"]).
-            target: Số lượng lead hợp lệ cần thu thập.
-
-        Returns:
-            Dict tổng hợp kết quả: số lead thêm, thống kê bỏ qua, đường dẫn file xuất.
-        """
         import_batch_id = str(uuid.uuid4())
         logger.info(f"Bắt đầu đợt cào mới | Mã đợt: {import_batch_id}")
 
-        # Bộ đếm thống kê để hiển thị kết quả cuối
         stats = {"viettel": 0, "has_web": 0, "not_hcm": 0, "dup": 0}
-
-        # Danh sách lead hợp lệ thu được trong đợt này
         batch_leads: list[Lead] = []
-        # Tập SĐT đã thấy trong đợt này (tránh trùng nội bộ)
         batch_phones: set[str] = set()
-
         TARGET = target
 
-        # ----------------------------------------------------------------
-        # BƯỚC 1: Cào dữ liệu thô từ Google Maps (Thu thập đủ TARGET lead TỔNG CỘNG)
-        # ----------------------------------------------------------------
-        print(f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3 Nhân Đa Luồng", flush=True)
+        print(
+            f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3 Nhân Đa Luồng",
+            flush=True,
+        )
 
         print_lock = threading.Lock()
         data_lock = threading.Lock()
         stop_event = threading.Event()
 
-        def _print_status(status_text: str, current_count: int = -1, worker_id: int = 1):
+        def _print_status(
+            status_text: str, current_count: int = -1, worker_id: int = 1
+        ):
             with print_lock:
                 display_count = len(batch_leads)
                 if display_count >= TARGET:
                     display_count = TARGET
-                
+
                 p = int((display_count / TARGET) * 100) if TARGET > 0 else 100
                 t_len = 20
                 pos = int((display_count / TARGET) * t_len) if TARGET > 0 else t_len
-                if pos > t_len: pos = t_len
-                
-                bird_segment = f"🏍︎({display_count}/{TARGET})"
+                if pos > t_len:
+                    pos = t_len
+
+                bird_segment = f" ✈︎ ({display_count}/{TARGET})"
                 left_dashes = "-" * pos
                 right_dashes = "-" * (t_len - pos)
-                
+
                 b = f"\033[1m0%\033[0m \033[95m{left_dashes}{bird_segment}{right_dashes}>\033[0m \033[1m100%\033[0m"
-                # Chỉ in các log hệ thống, ẨN các log dữ liệu cào/bỏ qua theo ý sếp
                 sys.stdout.write("\033[2K\r")
-                if status_text and not any(x in status_text for x in ["Chốt đơn", "Bỏ qua", "Tìm thấy", "ĐÃ TÌM THẤY", "ĐÃ LẤY"]):
-                    if "✅" in status_text: status_text = f"\033[92m{status_text}\033[0m"
-                    elif "❌" in status_text: status_text = f"\033[90m{status_text}\033[0m"
-                    elif "⚠️" in status_text: status_text = f"\033[93m{status_text}\033[0m"
-                    elif "🔄" in status_text: status_text = f"\033[96m{status_text}\033[0m"
-                    elif "🔍" in status_text: status_text = f"\033[94m{status_text}\033[0m"
+                if status_text and not any(
+                    x in status_text
+                    for x in ["Chốt đơn", "Bỏ qua", "Tìm thấy", "ĐÃ TÌM THẤY", "ĐÃ LẤY"]
+                ):
+                    if "✅" in status_text:
+                        status_text = f"\033[92m{status_text}\033[0m"
+                    elif "❌" in status_text:
+                        status_text = f"\033[90m{status_text}\033[0m"
+                    elif "⚠️" in status_text:
+                        status_text = f"\033[93m{status_text}\033[0m"
+                    elif "🔄" in status_text:
+                        status_text = f"\033[96m{status_text}\033[0m"
+                    elif "🔍" in status_text:
+                        status_text = f"\033[94m{status_text}\033[0m"
                     sys.stdout.write(f"  {status_text}\n")
 
                 sys.stdout.write(f"  {b}\r")
@@ -285,118 +364,129 @@ class AutoRunUseCase:
             with data_lock:
                 return _is_duplicate(p, n, batch_phones, self._repository)
 
-        # Tính chỉ tiêu cho từng từ khóa (chia đều, phần dư cộng vào các từ khóa đầu)
-        targets_by_kw = {}
-        counts_by_kw = {}
-        if TARGET > 0 and len(keywords) > 0:
-            base_tgt = TARGET // len(keywords)
-            rem_tgt = TARGET % len(keywords)
-            for i, kw in enumerate(keywords):
-                targets_by_kw[kw] = base_tgt + (1 if i < rem_tgt else 0)
-                counts_by_kw[kw] = 0
-        else:
-            for kw in keywords:
-                targets_by_kw[kw] = 999999
-                counts_by_kw[kw] = 0
-
+        queries_by_kw = {kw: _generate_queries(kw) for kw in keywords}
         all_queries = []
-        for original_kw in keywords:
-            for q in _generate_queries(original_kw):
-                all_queries.append((original_kw, q))
+        max_len = max(len(qs) for qs in queries_by_kw.values()) if queries_by_kw else 0
+        for i in range(max_len):
+            for kw in keywords:
+                if i < len(queries_by_kw[kw]):
+                    all_queries.append((kw, queries_by_kw[kw][i]))
 
         def _worker_task(original_kw: str, kw: str, worker_id: int):
             with data_lock:
                 if len(batch_leads) >= TARGET:
                     return
-                if counts_by_kw[original_kw] >= targets_by_kw[original_kw]:
-                    return
-            
-            _print_status(f"🔄 [Nhân {worker_id}] Bắt đầu quét: '{kw}'", worker_id=worker_id)
-            
+
+            _print_status(
+                f"🔄 [Nhân {worker_id}] Bắt đầu quét: '{kw}'", worker_id=worker_id
+            )
+
             raw_leads = self._maps_scraper.scrape_fast(
-                kw, 
-                min_clean_target=30, # Mỗi từ khóa lấy tối đa 30 kết quả thô, chia đều cho các quận
+                kw,
+                min_clean_target=25,
                 status_callback=lambda msg, c: _print_status(msg, c, worker_id),
                 is_duplicate_fn=dup_check_fn,
                 worker_id=worker_id,
-                stop_event=stop_event
+                stop_event=stop_event,
             )
-            
+
             logger.info(f"[Nhân {worker_id}] '{kw}' → {len(raw_leads)} kết quả thô")
+
+            # Lấy từ khóa chính người dùng nhập vào (ví dụ: "cửa hàng điện thoại" -> ["cửa", "hàng", "điện", "thoại"])
+            query_tokens = [
+                t.lower() for t in original_kw.split() if len(t.strip()) > 1
+            ]
 
             for raw in raw_leads:
                 with data_lock:
                     if len(batch_leads) >= TARGET:
                         stop_event.set()
                         return
-                    if counts_by_kw[original_kw] >= targets_by_kw[original_kw]:
-                        return
 
-                time.sleep(0.1)  # Giảm delay vì chạy đa luồng
+                time.sleep(0.1)
 
                 name_val = raw.get("company_name") or raw.get("name", "")
                 if not _is_valid_name(name_val):
                     continue
 
+                lower_name = name_val.lower()
+
+                # 🛑 KIỂM TRA THUẬN CHIỀU: Tên cửa hàng phải chứa ít nhất một từ khóa quan trọng từ yêu cầu của sếp
+                if query_tokens:
+                    # Bỏ qua các từ nối quá chung chung
+                    meaningful_tokens = [
+                        t
+                        for t in query_tokens
+                        if t not in ["của", "và", "các", "cho", "tại", "tp"]
+                    ]
+                    if meaningful_tokens:
+                        if not any(token in lower_name for token in meaningful_tokens):
+                            with data_lock:
+                                stats["not_hcm"] += 1
+                            continue
+
                 if _has_website(raw):
-                    with data_lock: stats["has_web"] += 1
-                    _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Website)")
+                    with data_lock:
+                        stats["has_web"] += 1
                     continue
 
                 if not _is_in_hcm(raw.get("address", "")):
-                    with data_lock: stats["not_hcm"] += 1
-                    _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Ngoài HCM)")
+                    with data_lock:
+                        stats["not_hcm"] += 1
                     continue
 
                 valid, phone_vo = _is_valid_phone(raw.get("phone", ""))
                 if not valid:
-                    with data_lock: stats["viettel"] += 1
-                    _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Số rác/Viettel)")
+                    with data_lock:
+                        stats["viettel"] += 1
                     continue
 
                 with data_lock:
                     if len(batch_leads) >= TARGET:
                         stop_event.set()
                         return
-                    if counts_by_kw[original_kw] >= targets_by_kw[original_kw]:
-                        return
-                        
-                    if _is_duplicate(phone_vo.value, raw.get("company_name", ""), batch_phones, self._repository):
+
+                    if _is_duplicate(
+                        phone_vo.value,
+                        raw.get("company_name", ""),
+                        batch_phones,
+                        self._repository,
+                    ):
                         stats["dup"] += 1
-                        _print_status(f"❌ [Nhân {worker_id}] Bỏ qua: {name_val[:20]} (Trùng lặp)")
                         continue
 
                     lead = _build_lead(raw, phone_vo, import_batch_id)
                     if not lead:
                         continue
 
-                    self._repository.add(lead)
-                    batch_leads.append(lead)
-                    batch_phones.add(phone_vo.value)
-                    counts_by_kw[original_kw] += 1
-                    _print_status(f"✅ [Nhân {worker_id}] Chốt đơn: {lead.company_name[:20]} | {lead.phone}")
+                    if not lead.address or len(lead.address.strip()) < 10:
+                        stats["not_hcm"] += 1
+                        continue
 
-        # Chạy 3 luồng song song theo yêu cầu của user
+                    batch_leads.append(lead)
+
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = []
             for idx, kw in enumerate(all_queries):
                 worker_id = (idx % 3) + 1
                 original_kw, q_str = kw
-                futures.append(executor.submit(_worker_task, original_kw, q_str, worker_id))
-            
+                futures.append(
+                    executor.submit(_worker_task, original_kw, q_str, worker_id)
+                )
+
             for future in as_completed(futures):
                 try:
                     future.result()
                 except Exception as e:
                     logger.error(f"Lỗi ở worker: {e}")
-                
+
                 with data_lock:
                     if len(batch_leads) >= TARGET:
                         stop_event.set()
                         executor.shutdown(wait=False, cancel_futures=True)
                         break
 
-        print("\n\n") # Xuống dòng khi kết thúc để giữ thanh tiến trình
+        print("\n\n")
 
         logger.info(
             f"Hoàn tất | Thêm: {len(batch_leads)} | "
@@ -405,6 +495,21 @@ class AutoRunUseCase:
             f"Bỏ ngoài HCM: {stats['not_hcm']} | "
             f"Bỏ trùng: {stats['dup']}"
         )
+
+        # ----------------------------------------------------------------
+        # BƯỚC 3.5: LƯU TỪNG LEAD VÀO DATABASE MỘT CÁCH AN TOÀN
+        # ----------------------------------------------------------------
+        if batch_leads:
+            saved_count = 0
+            for lead in batch_leads:
+                try:
+                    self._repository.add(lead)
+                    saved_count += 1
+                except Exception as e:
+                    logger.error(f"Lỗi khi lưu lead {lead.phone}: {e}")
+            logger.info(
+                f"Đã lưu thành công {saved_count}/{len(batch_leads)} lead vào Database."
+            )
 
         # ----------------------------------------------------------------
         # BƯỚC 4: Xuất file Excel kết quả
@@ -421,20 +526,14 @@ class AutoRunUseCase:
             "export_file": export_file,
         }
 
-    # -----------------------------------------------------------------------
-    # Private helpers
-    # -----------------------------------------------------------------------
-
     def _export(self, leads: list[Lead]) -> str:
-        """Xuất CHÍNH XÁC đợt lead mới vừa cào được ra file Excel (nguon 1.xlsx, nguon 2.xlsx...).
-
-        Không in lại các lead cũ đã có trong CSDL để dễ quản lý.
-        """
         if not leads:
             return ""
         try:
             from pathlib import Path
-            export_dir = Path("exports")
+
+            project_root = Path(__file__).resolve().parents[3]
+            export_dir = project_root / "exports"
             export_dir.mkdir(parents=True, exist_ok=True)
 
             i = 1
@@ -446,7 +545,10 @@ class AutoRunUseCase:
             if excel_writer:
                 excel_writer.write(leads, str(out_path))
             else:
-                from leadhunter.infrastructure.adapters.excel_writer_adapter import ExcelWriterAdapter
+                from leadhunter.infrastructure.adapters.excel_writer_adapter import (
+                    ExcelWriterAdapter,
+                )
+
                 ExcelWriterAdapter().write(leads, str(out_path))
 
             logger.info(f"Đã xuất {len(leads)} lead mới vào file: {out_path}")

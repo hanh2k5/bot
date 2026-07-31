@@ -89,15 +89,27 @@ class ExcelWriterAdapter:
                 ]
                 ws.append(row)
 
-            # Format data cells and auto-adjust column widths để rộng rãi dễ nhập liệu
-            col_widths = {"A": 15, "B": 45, "C": 65, "D": 20, "E": 45}
+          # Căn chỉnh tỷ lệ cột y hệt mẫu mới (Link nhỏ lại, Tên/Địa chỉ/Tình trạng rộng ra)
+            col_widths = {"A": 15, "B": 45, "C": 75, "D": 18, "E": 50}
             for col_letter, width in col_widths.items():
                 ws.column_dimensions[col_letter].width = width
+
+            # Bảng màu chuẩn theo mẫu hình image_380303.png
+            fill_colors = {
+                1: PatternFill(start_color="C6E0B4", end_color="C6E0B4", fill_type="solid"), # Cột 1 (SĐT): Xanh lá nhạt
+                2: PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid"), # Cột 2 (Tên): Vàng nhạt
+                3: PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid"), # Cột 3 (Địa chỉ): Xanh dương nhạt
+                4: PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid"), # Cột 4 (Link): Đỏ/Hồng nhạt
+                5: PatternFill(start_color="D9D2E9", end_color="D9D2E9", fill_type="solid")  # Cột 5 (Tình trạng): Tím nhạt
+            }
 
             for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=5):
                 for cell in row:
                     cell.border = thin_border
                     cell.alignment = Alignment(horizontal="left", vertical="center")
+                    # Tự động đổ màu theo số thứ tự của cột
+                    if cell.column in fill_colors:
+                        cell.fill = fill_colors[cell.column]
 
             # Apply AutoFilter to the header row
             ws.auto_filter.ref = f"A1:E{ws.max_row}"

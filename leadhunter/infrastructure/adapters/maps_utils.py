@@ -60,6 +60,11 @@ def extract_address(snippet: str) -> str:
         r'"(\d+[^"]{5,150}(?:Hồ Chí Minh|Ho Chi Minh|HCM|Vietnam|Việt Nam)[^"]{0,30})"',
         snippet
     )
+    # 2. Bắt chuỗi địa chỉ tổng quát có chứa HCM / Vietnam
+    addr_m2 = re.findall(
+        r'"([^"]{8,150}(?:Hồ Chí Minh|Ho Chi Minh|HCM|Vietnam|Việt Nam)[^"]{0,30})"',
+        snippet
+    )
     for a in addr_m:
         a_clean = a.strip()
         if not a_clean.startswith("0") and len(a_clean) > 15:

@@ -34,10 +34,18 @@ class ConnectionManager:
             db_path: Path to the SQLite .db file. Parent directories are
                 created automatically on first use.
         """
-        # Security: path is controlled by configuration, not user input.
-        # Use pathlib to avoid OS-specific separator issues (NFR-010).
-        self._db_path = Path(db_path) if db_path != ":memory:" else None
-        self._raw_path = db_path
+        if db_path == ":memory:":
+            self._db_path = None
+            self._raw_path = db_path
+        else:
+            # 🔒 KHÓA CHẾT ĐƯỜNG DẪN TUYỆT ĐỐI VÀO THƯ MỤC data/
+            # Path(__file__) trỏ đến connection_manager.py -> lùi 3 cấp (.parents[3]) là ra thư mục gốc dự án
+            project_root = Path(__file__).resolve().parents[3]
+            db_name = Path(db_path).name  # Bóc lấy đúng cái tên file (leadhunter.db)
+
+            self._db_path = project_root / "data" / db_name
+            self._raw_path = str(self._db_path)
+
         self._memory_conn: sqlite3.Connection | None = None
 
     @property
@@ -75,7 +83,7 @@ class ConnectionManager:
             conn.execute("PRAGMA foreign_keys = ON")
             # Improve performance for LIKE queries (REQ-043 keyword search)
             conn.execute("PRAGMA case_sensitive_like = OFF")
-            
+
             if self._raw_path == ":memory:":
                 self._memory_conn = conn
             return conn
