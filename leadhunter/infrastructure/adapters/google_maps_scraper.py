@@ -367,40 +367,17 @@ class GoogleMapsScraper:
             proxy_playwright = None
             brain_name = "Mạng gốc (Hệ Free)"
 
-            if self._proxy:
-                proxy_playwright = {
-                    "server": self._proxy.get("http", "").replace("http://", "")
-                }
-                brain_name = "Mạng Proxy (Hệ VIP)"
-
+            # Cấu hình user-agent tương ứng với từng tên nhân
             user_agents = {
-                1: (
-                    "Win",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                ),
-                2: (
-                    "Mac",
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                ),
-                3: (
-                    "Linux",
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                ),
+                1: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                2: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                3: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             }
-            # Nếu có nhiều hơn 3 worker, quay vòng lại
-            os_name, ua_string = user_agents.get(
-                (worker_id - 1) % 3 + 1, user_agents[1]
-            )
 
-            if status_callback:
-                status_callback(
-                    f"🧠 [{os_name}] Khởi động với: {brain_name}", 0
-                )
-            else:
-                print(
-                    f"\n[🧠] [{os_name}] Khởi động với {brain_name} để vượt tường lửa...",
-                    flush=True,
-                )
+            # Xoay vòng lấy tên nhân từ mảng tùy ý và gán user-agent tương ứng
+            os_names = ["Linux", "Mac", "Win"]
+            os_name = os_names[(worker_id - 1) % len(os_names)]
+            ua_string = user_agents.get(worker_id, user_agents[1])
 
             with sync_playwright() as p:
                 launch_kwargs = {
@@ -512,12 +489,12 @@ class GoogleMapsScraper:
                     # Kết thúc cuộn, bắt đầu kiểm tra và lọc dữ liệu
                     if status_callback:
                         status_callback(
-                            f"🔄 [Nhân {worker_id} - {os_name}] Đang trích xuất chi tiết {len(seen_hrefs)} địa điểm...",
+                            f"🔄 [ {os_name}] Đang trích xuất chi tiết {len(seen_hrefs)} địa điểm...",
                             -1,
                         )
                     else:
                         print(
-                            f"  🔄 [Nhân {worker_id} - {os_name}] Đang trích xuất chi tiết {len(seen_hrefs)} địa điểm...",
+                            f"  🔄 [ {os_name}] Đang trích xuất chi tiết {len(seen_hrefs)} địa điểm...",
                             flush=True,
                         )
 
@@ -554,12 +531,12 @@ class GoogleMapsScraper:
                         if is_duplicate_fn and is_duplicate_fn(place_phone, place_name):
                             if status_callback:
                                 status_callback(
-                                    f"❌ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
+                                    f"❌ [ {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
                                     len(all_leads),
                                 )
                             else:
                                 print(
-                                    f"  ❌ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
+                                    f"  ❌ [ {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
                                     flush=True,
                                 )
                             continue
@@ -649,12 +626,12 @@ class GoogleMapsScraper:
                         if _is_professional_website(place_web):
                             if status_callback:
                                 status_callback(
-                                    f"🚫 [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Có Web)",
+                                    f"🚫 [ {os_name}] Bỏ qua: {place_name[:30]} (Có Web)",
                                     len(all_leads),
                                 )
                             else:
                                 print(
-                                    f"  🚫 [Nhân {worker_id} - {os_name}] [Bỏ qua - Có Web]: {place_name[:30]} ({place_web[:20]}...)",
+                                    f"  🚫 [ {os_name}] [Bỏ qua - Có Web]: {place_name[:30]} ({place_web[:20]}...)",
                                     flush=True,
                                 )
                             continue
@@ -662,12 +639,12 @@ class GoogleMapsScraper:
                         if not p_str:
                             if status_callback:
                                 status_callback(
-                                    f"⏳ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Chưa có SĐT)",
+                                    f"⏳ [ {os_name}] Bỏ qua: {place_name[:30]} (Chưa có SĐT)",
                                     len(all_leads),
                                 )
                             else:
                                 print(
-                                    f"  ⏳ [Nhân {worker_id} - {os_name}] [Chưa có SĐT]: {place_name[:30]}",
+                                    f"  ⏳ [ {os_name}] [Chưa có SĐT]: {place_name[:30]}",
                                     flush=True,
                                 )
                             continue
@@ -677,12 +654,12 @@ class GoogleMapsScraper:
                         if not ok:
                             if status_callback:
                                 status_callback(
-                                    f"⏭️ [Nhân {worker_id} - {os_name}] Bỏ qua: {place_name[:30]} (Số bàn {p_str})",
+                                    f"⏭️ [ {os_name}] Bỏ qua: {place_name[:30]} (Số bàn {p_str})",
                                     len(all_leads),
                                 )
                             else:
                                 print(
-                                    f"  ⏭️ [Nhân {worker_id} - {os_name}] [Bỏ qua - Số bàn {p_str}]: {place_name[:30]}",
+                                    f"  ⏭️ [ {os_name}] [Bỏ qua - Số bàn {p_str}]: {place_name[:30]}",
                                     flush=True,
                                 )
                             continue
@@ -707,12 +684,12 @@ class GoogleMapsScraper:
 
                         if status_callback:
                             status_callback(
-                                f"🔎 [Nhân {worker_id} - {os_name}] {place_name[:25]} | {clean_p}",
+                                f"🔎 [ {os_name}] {place_name[:25]} | {clean_p}",
                                 -1,
                             )
                         else:
                             print(
-                                f"  🔎 [Nhân {worker_id} - {os_name}] [ĐÃ TÌM THẤY LEAD] {place_name} | {clean_p}",
+                                f"  🔎 [ {os_name}] [ĐÃ TÌM THẤY LEAD] {place_name} | {clean_p}",
                                 flush=True,
                             )
 

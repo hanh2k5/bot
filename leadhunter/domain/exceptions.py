@@ -150,9 +150,7 @@ class DuplicateLeadError(DomainError):
     error_code = "DUPLICATE_LEAD"
 
     def __init__(self, existing_lead_id: str) -> None:
-        super().__init__(
-            f"Lead already exists (existing id: {existing_lead_id})"
-        )
+        super().__init__(f"Lead already exists (existing id: {existing_lead_id})")
         self.existing_lead_id = existing_lead_id
 
 
@@ -317,9 +315,7 @@ class FileReadError(InfrastructureError):
     error_code = "FILE_READ_ERROR"
 
     def __init__(self, file_path: str, cause: Exception) -> None:
-        super().__init__(
-            f"Cannot read file '{file_path}': {type(cause).__name__}"
-        )
+        super().__init__(f"Cannot read file '{file_path}': {type(cause).__name__}")
         self.file_path = file_path
         self.__cause__ = cause
 
@@ -335,9 +331,7 @@ class FileWriteError(InfrastructureError):
     error_code = "FILE_WRITE_ERROR"
 
     def __init__(self, file_path: str, cause: Exception) -> None:
-        super().__init__(
-            f"Cannot write file '{file_path}': {type(cause).__name__}"
-        )
+        super().__init__(f"Cannot write file '{file_path}': {type(cause).__name__}")
         self.file_path = file_path
         self.__cause__ = cause
 
@@ -394,9 +388,7 @@ class RequestTimeoutError(InfrastructureError):
     error_code = "REQUEST_TIMEOUT"
 
     def __init__(self, url: str, timeout_seconds: float) -> None:
-        super().__init__(
-            f"Request to '{url}' timed out after {timeout_seconds}s."
-        )
+        super().__init__(f"Request to '{url}' timed out after {timeout_seconds}s.")
         self.url = url
         self.timeout_seconds = timeout_seconds
 
@@ -418,14 +410,15 @@ class MigrationError(InfrastructureError):
         self.migration_name = migration_name
         self.__cause__ = cause
 
+
 class GoogleMapsBlockedError(InfrastructureError):
     """Raised when Google Maps blocks the scraping process (e.g., CAPTCHA, Too Many Requests, Network disconnect)."""
-    
+
     error_code = "GOOGLE_MAPS_BLOCKED"
 
     def __init__(self, reason: str, cause: Exception | None = None) -> None:
         super().__init__(
-            f"Google Maps đã chặn hoặc từ chối kết nối. Nguyên nhân: {reason}. "
+            f"Google Maps đã chặn hoặc từ chối kết nối. Nguyên : {reason}. "
             "Vui lòng đổi IP (bật/tắt 4G, dùng VPN) hoặc thử lại sau."
         )
         self.reason = reason

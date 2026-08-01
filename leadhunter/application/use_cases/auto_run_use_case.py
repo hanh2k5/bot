@@ -14,6 +14,8 @@ import uuid
 import time
 import sys
 import threading
+import signal
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING
 
@@ -290,6 +292,19 @@ def _generate_queries(kw: str) -> list[str]:
     return [f"{base_kw} {loc}" for loc in locations]
 
 
+# Bắt sự kiện Ctrl + C để dừng khẩn cấp lập tức (đặt sát lề trái, ngoài class)
+def _signal_handler(sig, frame):
+    print(
+        "\n🛑 [STOP] Đã nhận lệnh hủy (Ctrl+C), đang ép dừng toàn bộ các nhân...",
+        flush=True,
+    )
+    os._exit(0)
+
+
+# Đăng ký tín hiệu
+signal.signal(signal.SIGINT, _signal_handler)
+
+
 class AutoRunUseCase:
     """Điều phối quy trình cào lead tự động hàng ngày."""
 
@@ -313,13 +328,27 @@ class AutoRunUseCase:
         TARGET = target
 
         print(
-            f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3 Nhân Đa Luồng",
+            f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3  Đa Luồng",
             flush=True,
         )
 
         print_lock = threading.Lock()
         data_lock = threading.Lock()
         stop_event = threading.Event()
+
+        # 🛑 CHIA ĐỀU CHỈ TIÊU CHO TỪNG TỪ KHÓA (Ví dụ 80 cho 3 từ -> 27, 27, 26)
+        targets_by_kw = {}
+        counts_by_kw = {}
+        if TARGET > 0 and len(keywords) > 0:
+            base_tgt = TARGET // len(keywords)
+            rem_tgt = TARGET % len(keywords)
+            for i, kw in enumerate(keywords):
+                targets_by_kw[kw] = base_tgt + (1 if i < rem_tgt else 0)
+                counts_by_kw[kw] = 0
+        else:
+            for kw in keywords:
+                targets_by_kw[kw] = 999999
+                counts_by_kw[kw] = 0
 
         def _print_status(
             status_text: str, current_count: int = -1, worker_id: int = 1
@@ -364,22 +393,15 @@ class AutoRunUseCase:
             with data_lock:
                 return _is_duplicate(p, n, batch_phones, self._repository)
 
-        queries_by_kw = {kw: _generate_queries(kw) for kw in keywords}
-        all_queries = []
-        max_len = max(len(qs) for qs in queries_by_kw.values()) if queries_by_kw else 0
-        for i in range(max_len):
-            for kw in keywords:
-                if i < len(queries_by_kw[kw]):
-                    all_queries.append((kw, queries_by_kw[kw][i]))
-
         def _worker_task(original_kw: str, kw: str, worker_id: int):
             with data_lock:
                 if len(batch_leads) >= TARGET:
                     return
 
-            _print_status(
-                f"🔄 [Nhân {worker_id}] Bắt đầu quét: '{kw}'", worker_id=worker_id
-            )
+            os_names = ["Linux", "Mac", "Win"]
+            os_name = os_names[(worker_id - 1) % len(os_names)]
+
+            _print_status(f"🔄 [ {os_name}] Bắt đầu quét: '{kw}'", worker_id=worker_id)
 
             raw_leads = self._maps_scraper.scrape_fast(
                 kw,
@@ -390,9 +412,8 @@ class AutoRunUseCase:
                 stop_event=stop_event,
             )
 
-            logger.info(f"[Nhân {worker_id}] '{kw}' → {len(raw_leads)} kết quả thô")
+            logger.info(f"[ {worker_id}] '{kw}' → {len(raw_leads)} kết quả thô")
 
-            # Lấy từ khóa chính người dùng nhập vào (ví dụ: "cửa hàng điện thoại" -> ["cửa", "hàng", "điện", "thoại"])
             query_tokens = [
                 t.lower() for t in original_kw.split() if len(t.strip()) > 1
             ]
@@ -411,13 +432,11 @@ class AutoRunUseCase:
 
                 lower_name = name_val.lower()
 
-                # 🛑 KIỂM TRA THUẬN CHIỀU: Tên cửa hàng phải chứa ít nhất một từ khóa quan trọng từ yêu cầu của sếp
                 if query_tokens:
-                    # Bỏ qua các từ nối quá chung chung
                     meaningful_tokens = [
                         t
                         for t in query_tokens
-                        if t not in ["của", "và", "các", "cho", "tại", "tp"]
+                        if t not in ["của", "va", "các", "cho", "tại", "tp"]
                     ]
                     if meaningful_tokens:
                         if not any(token in lower_name for token in meaningful_tokens):
@@ -465,6 +484,47 @@ class AutoRunUseCase:
 
                     batch_leads.append(lead)
 
+        # 🛑 CHẠY TUẦN TỰ TỪNG NGÀNH ĐỂ GOM KẾT QUẢ THEO KHỐI TỪ TRÊN XUỐNG DƯỚI
+        import random
+
+        target_per_keyword = TARGET // len(keywords) if len(keywords) > 0 else TARGET
+        if target_per_keyword < 1:
+            target_per_keyword = TARGET
+
+        for kw in keywords:
+            if len(batch_leads) >= TARGET:
+                break
+                
+            queries = _generate_queries(kw)
+            random.shuffle(queries)
+
+            print(
+                f"\n[*] Đang cào khối ngành: \x27{kw}\x27 (Mục tiêu: {target_per_keyword} số)...",
+                flush=True,
+            )
+
+            all_queries = [(kw, q) for q in queries]
+
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = []
+                for idx, q_tuple in enumerate(all_queries):
+                    worker_id = (idx % 3) + 1
+                    original_kw, q_str = q_tuple
+                    futures.append(
+                        executor.submit(_worker_task, original_kw, q_str, worker_id)
+                    )
+
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.error(f"Lỗi ở worker: {e}")
+
+                    with data_lock:
+                        if len(batch_leads) >= TARGET:
+                            stop_event.set()
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            break
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = []
             for idx, kw in enumerate(all_queries):
