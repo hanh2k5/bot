@@ -69,6 +69,8 @@ from leadhunter.presentation.cli.commands.merge_cmd import merge_cmd
 from leadhunter.presentation.cli.commands.auto_scrape_cmd import auto_scrape_cmd
 from leadhunter.presentation.cli.commands.reset_db_cmd import reset_db_cmd
 from leadhunter.presentation.cli.commands.rollback_cmd import rollback_cmd
+from leadhunter.presentation.cli.commands.gop_cmd import gop_cmd
+from leadhunter.presentation.cli.commands.nap_cmd import nap_cmd
 
 cli.add_command(scrape_cmd, name="scrape")
 cli.add_command(update_status_cmd, name="update-status")
@@ -77,6 +79,9 @@ cli.add_command(merge_cmd, name="merge-duplicate")
 cli.add_command(auto_scrape_cmd, name="auto-scrape")
 cli.add_command(reset_db_cmd, name="reset-db")
 cli.add_command(rollback_cmd, name="rollback")
+cli.add_command(gop_cmd, name="gop")
+cli.add_command(gop_cmd, name="quet")
+cli.add_command(nap_cmd, name="nap")
 
 
 def main() -> None:
@@ -129,6 +134,18 @@ def huy_main() -> None:
     """Standalone entry point for the 'huy' shortcut."""
     import sys
     sys.argv.insert(1, "rollback")
+    main()
+
+def gop_main() -> None:
+    """Standalone entry point for the 'gop' shortcut."""
+    import sys
+    sys.argv.insert(1, "gop")
+    main()
+
+def nap_main() -> None:
+    """Standalone entry point for the 'nap' shortcut."""
+    import sys
+    sys.argv.insert(1, "nap")
     main()
 
 

@@ -24,28 +24,8 @@ def rollback_cmd(ctx: click.Context) -> None:
         deleted_count = repo.rollback_last_batch()
 
         if deleted_count > 0:
-            import os
-            import glob
-
-            deleted_file_msg = ""
-            from pathlib import Path
-
-            project_root = Path(__file__).resolve().parents[4]
-            # Ép glob tìm đúng thư mục tuyệt đối
-            export_files = glob.glob(str(project_root / "exports" / "*.xlsx"))
-            if export_files:
-                # Find the newest file by creation/modification time
-                latest_file = max(export_files, key=os.path.getctime)
-                try:
-                    os.remove(latest_file)
-                    deleted_file_msg = (
-                        f"\n🗑️ Đã dọn dẹp luôn file Excel vừa xuất: {latest_file}"
-                    )
-                except Exception:
-                    pass
-
             click.secho(
-                f"\n✅ Đã rollback thành công! Đã xóa sạch {deleted_count} leads từ đợt cào gần nhất ra khỏi Database.{deleted_file_msg}",
+                f"\n✅ Đã rollback thành công! Đã xóa sạch {deleted_count} leads từ đợt cào gần nhất ra khỏi Database.",
                 fg="green",
                 bold=True,
             )

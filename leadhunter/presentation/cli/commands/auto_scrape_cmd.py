@@ -22,8 +22,23 @@ from leadhunter.presentation.cli.formatters.table_formatter import format_table
     "--target", "-t",
     type=int, default=80, help="Tổng số lượng Lead mục tiêu cần cào (Mặc định: 80)"
 )
+@click.option(
+    "--viettel/--no-viettel", "allow_viettel",
+    default=False, help="Cho phép lấy cả số Viettel (Mặc định: --no-viettel)"
+)
+@click.option(
+    "--web/--no-web", "allow_web",
+    default=False, help="Cho phép lấy cả công ty đã có Website (Mặc định: --no-web)"
+)
 @click.pass_context
-def auto_scrape_cmd(ctx: click.Context, keywords: tuple[str, ...], output_format: str, target: int) -> None:
+def auto_scrape_cmd(
+    ctx: click.Context,
+    keywords: tuple[str, ...],
+    output_format: str,
+    target: int,
+    allow_viettel: bool,
+    allow_web: bool,
+) -> None:
     """Run daily automated scraper with smart filters (HCM, No Viettel, No Web)."""
     config = ctx.obj["config"]
 
@@ -65,7 +80,12 @@ def auto_scrape_cmd(ctx: click.Context, keywords: tuple[str, ...], output_format
             click.secho("❌ Không có từ khóa hợp lệ.", fg="red")
             sys.exit(1)
 
-        result = use_case.execute(parsed_keywords, target=target)
+        result = use_case.execute(
+            parsed_keywords,
+            target=target,
+            allow_viettel=allow_viettel,
+            allow_web=allow_web,
+        )
         click.secho(f"\n✅ Hoàn thành Auto-scrape! Kết quả đã được lưu.", fg="green")
 
     except LeadHunterError as exc:
@@ -98,7 +118,18 @@ def auto_scrape_cmd(ctx: click.Context, keywords: tuple[str, ...], output_format
         click.secho(f"{result.get('added_count', 0)} số mới", fg="white", bold=True)
         
         click.secho(" 🗑️ Đã vứt sọt rác: ", fg="red", nl=False)
-        click.secho(f"{web} web | {viettel} viettel | {not_hcm} ngoại thành | {dup} trùng", fg="white")
+        trash_items = []
+        if web > 0:
+            trash_items.append(f"{web} web")
+        if viettel > 0:
+            trash_items.append(f"{viettel} viettel/bàn")
+        if not_hcm > 0:
+            trash_items.append(f"{not_hcm} ngoại thành")
+        if dup > 0:
+            trash_items.append(f"{dup} trùng")
+        
+        trash_str = " | ".join(trash_items) if trash_items else "Sạch bong 100%"
+        click.secho(trash_str, fg="white")
         
         click.secho(" 📁 Tên file     : ", fg="yellow", nl=False)
         click.secho(f"{file_name}", fg="white", bold=True)

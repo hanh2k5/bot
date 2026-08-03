@@ -37,6 +37,8 @@ playwright install chromium
 reset
 ```
 
+*(Lưu ý trên Linux / WSL2: Nếu bị báo lỗi `externally-managed-environment`, bạn chỉ cần thêm cờ `--break-system-packages` vào cuối: `pip install -e . --break-system-packages`)*
+
 _(Thay `D:\bot` bằng đúng đường dẫn thư mục chứa bot trên máy đó)._
 
 ---
@@ -49,15 +51,20 @@ Hệ thống đã được thiết kế tối giản nhất với 4 lệnh siêu
 
 Mặc định mỗi lần chạy, bot sẽ tự động cào **vừa đủ 80 số** rồi tự xuất ra file Excel.
 
-- `cao "Cửa cuốn"` : Lấy 80 số cho 1 ngành duy nhất.
-- `cao "giáo dục, cân điện tử, xây dựng"` : Cào 80 số, chia đều tăm tắp cho cả 3 ngành.
+- `cao "Cửa cuốn"` : Lấy 80 số cho 1 ngành duy nhất (Mặc định: Bỏ Viettel, Bỏ có Web).
+- `cao "Cửa cuốn, Nội thất"` : Cào 80 số, chia đều tăm tắp cho cả 3 ngành.
 - `cao "Nội thất" -t 50` : Cào số lượng tùy chọn (thay đổi mục tiêu bằng `-t 50`, `-t 100`...).
+- `cao "bệnh viện" --viettel` : 🎯 **Tính năng đa năng**: Cho phép lấy cả số điện thoại mạng Viettel!
+- `cao "bệnh viện" --web` : 🎯 **Tính năng đa năng**: Cho phép lấy cả công ty đã có sẵn Website!
+- `cao "bệnh viện" --viettel --web` : Cào tất tần tật không chừa số nào!
 
 ### 2. 📦 Nhóm Lệnh Xử Lý Nhanh
 
 - `xuat` : Lập tức trích xuất 80 số mới nhất ra 1 file Excel mới (Dùng khi lỡ tay xóa mất file Excel cũ, muốn xuất lại mà không cần cào thêm).
-- `huy` : Lệnh "Uống thuốc hối hận"! Lỡ cào nhầm từ khóa rác? Gõ lệnh này để **xóa sạch** toàn bộ tàn dư của đợt cào vừa rồi ra khỏi Database, trả lại sự trong sạch cho dữ liệu.
-- `reset` : Nút bấm hạt ! ☢️ Xóa sạch trắng toàn bộ Database và file Excel cũ để bắt đầu một chiến dịch hoàn toàn mới từ con số 0.
+- `nap` : Lệnh "Khôi phục / Bổ sung CSDL 1 chạm"! Tự động quét và nạp lại toàn bộ dữ liệu từ các file Excel vào Database (Tự lọc trùng lặp thông minh).
+- `huy` : Lệnh "Uống thuốc hối hận"! Lỡ cào nhầm từ khóa rác? Gõ lệnh này để **xóa sạch** toàn bộ dữ liệu của đợt cào vừa rồi ra khỏi CSDL (Bảo tồn nguyên vẹn các file Excel).
+- `quet` : Lệnh "Quét & Dọn dẹp CSDL 1 chạm"! Tự động quét toàn bộ CSDL và gộp/xóa sạch các SĐT bị trùng lặp trong 1 giây mà không cần copy ID thủ công (Hoặc dùng lệnh `gop`).
+- `reset` : Nút bấm hạt nhân! ☢️ Xóa sạch trắng toàn bộ Database và file Excel cũ để bắt đầu một chiến dịch hoàn toàn mới từ con số 0.
 
 ---
 

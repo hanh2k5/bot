@@ -71,37 +71,74 @@ class ExcelReaderAdapter(IngestionSourceAdapter):
             raise FileReadError(str(file_path), exc) from exc
 
         try:
-            ws = (
-                wb[self._sheet_name]
+            sheets_to_read = (
+                [wb[self._sheet_name]]
                 if self._sheet_name and self._sheet_name in wb.sheetnames
-                else wb.active
+                else wb.worksheets
             )
 
-            headers: list[str] = []
             data_row_index = 0
 
-            for excel_row in ws.iter_rows(values_only=True):
-                row_values = [str(cell).strip() if cell is not None else "" for cell in excel_row]
+            HEADER_ALIASES = {
+                "số điện thoại": "phone",
+                "sđt": "phone",
+                "điện thoại": "phone",
+                "phone": "phone",
+                "tên cửa hàng": "company_name",
+                "tên công ty": "company_name",
+                "tên": "company_name",
+                "company_name": "company_name",
+                "company": "company_name",
+                "địa chỉ": "address",
+                "address": "address",
+                "website": "website",
+                "web": "website",
+                "email": "email",
+                "tên người liên hệ": "contact_name",
+                "contact_name": "contact_name",
+                "contact": "contact_name",
+                "link google maps": "source_reference",
+                "tình trạng": "status",
+            }
 
-                if not headers:
-                    # First row is the header
-                    headers = [h.lower().strip() for h in row_values]
-                    logger.debug(
-                        "Excel headers detected",
-                        extra={"context": {"headers": headers}},
+            for ws in sheets_to_read:
+                headers: list[str] = []
+                for excel_row in ws.iter_rows(values_only=True):
+                    row_values = [str(cell).strip() if cell is not None else "" for cell in excel_row]
+
+                    if not headers:
+                        # First row of each sheet is the header
+                        raw_headers = [h.lower().strip() for h in row_values]
+                        mapped_headers = [HEADER_ALIASES.get(h, h) for h in raw_headers]
+                        if any(k in mapped_headers for k in ("phone", "company_name", "address", "website")):
+                            headers = mapped_headers
+                            logger.debug(
+                                f"Excel headers detected in sheet '{ws.title}'",
+                                extra={"context": {"headers": headers}},
+                            )
+                        continue
+
+                    # Skip completely empty rows
+                    if not any(row_values):
+                        continue
+
+                    data_row_index += 1
+                    row_data = {
+                        "company_name": "",
+                        "contact_name": "",
+                        "email": "",
+                        "phone": "",
+                        "website": "",
+                        "address": "",
+                    }
+                    for h, val in zip(headers, row_values):
+                        if h:
+                            row_data[h] = val
+
+                    yield RawLeadData(
+                        row_index=data_row_index,
+                        data=row_data,
+                        source_reference=str(file_path),
                     )
-                    continue
-
-                # Skip completely empty rows
-                if not any(row_values):
-                    continue
-
-                data_row_index += 1
-                row_data = dict(zip(headers, row_values))
-                yield RawLeadData(
-                    row_index=data_row_index,
-                    data=row_data,
-                    source_reference=str(file_path),
-                )
         finally:
             wb.close()

@@ -256,7 +256,13 @@ class ImportLeadsFromFileUseCase:
         Raises:
             DomainError: On any field-level validation failure.
         """
-        email_vo = normalize_email(data.get("email", ""))
+        email_raw = data.get("email", "").strip()
+        if email_raw:
+            email_vo = normalize_email(email_raw)
+            email_val = email_vo.value
+        else:
+            email_val = ""
+
         phone_vo = normalize_phone(data.get("phone", ""))
         company_vo = normalize_company_name(data.get("company_name", ""))
 
@@ -268,10 +274,16 @@ class ImportLeadsFromFileUseCase:
         except DomainError:
             website_str = website_raw  # Keep raw if invalid, don't block import
 
+        contact_raw = data.get("contact_name", "").strip()
+        try:
+            contact_str = normalize_contact_name(contact_raw) if contact_raw else ""
+        except DomainError:
+            contact_str = contact_raw
+
         return Lead(
             company_name=company_vo.value,
-            contact_name=normalize_contact_name(data.get("contact_name", "")),
-            email=email_vo.value,
+            contact_name=contact_str,
+            email=email_val,
             phone=phone_vo.value,
             website=website_str,
             address=normalize_address(data.get("address", "")),

@@ -27,6 +27,9 @@ cao = "leadhunter.presentation.cli.main:cao_main"
 reset = "leadhunter.presentation.cli.main:reset_main"
 xuat = "leadhunter.presentation.cli.main:xuat_main"
 huy = "leadhunter.presentation.cli.main:huy_main"
+gop = "leadhunter.presentation.cli.main:gop_main"
+quet = "leadhunter.presentation.cli.main:gop_main"
+nap = "leadhunter.presentation.cli.main:nap_main"
 
 [tool.setuptools.packages.find]
 where = ["."]

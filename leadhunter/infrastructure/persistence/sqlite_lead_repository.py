@@ -108,6 +108,20 @@ class SqliteLeadRepository(LeadRepository):
                 
                 batch_id = row[0]
                 
+                # Xóa dữ liệu liên quan ở các bảng phụ thuộc trước (để tránh lỗi FK constraint)
+                conn.execute(
+                    "DELETE FROM duplicate_log WHERE import_batch_id = ? OR original_lead_id IN (SELECT id FROM leads WHERE import_batch_id = ?)",
+                    (batch_id, batch_id),
+                )
+                conn.execute(
+                    "DELETE FROM lead_status_history WHERE lead_id IN (SELECT id FROM leads WHERE import_batch_id = ?)",
+                    (batch_id,),
+                )
+                conn.execute(
+                    "DELETE FROM import_history WHERE import_batch_id = ?",
+                    (batch_id,),
+                )
+                
                 # Xóa tất cả lead có batch_id này
                 cursor = conn.execute("DELETE FROM leads WHERE import_batch_id = ?", (batch_id,))
                 return cursor.rowcount

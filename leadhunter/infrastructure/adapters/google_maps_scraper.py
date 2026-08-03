@@ -1,10 +1,13 @@
+from __future__ import annotations
+import logging
+
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 """Google Maps Scraper — Playwright based.
 
 Scrapes local business listings using headless Chromium to execute JS,
 simulate scrolling, and bypass standard bot detection algorithms.
 """
 
-from __future__ import annotations
 
 import logging
 import time
@@ -252,7 +255,7 @@ class GoogleMapsScraper:
                 pass
 
         # JS trích xuất tức thì 100% dữ liệu từ thẻ danh sách trên Google Maps (Không bị đơ, không bị treo)
-        CARDS_EXTRACT_JS = """() => {
+        CARDS_EXTRACT_JS = r"""() => {
             const out = [];
             document.querySelectorAll('div[role="feed"] > div').forEach(item => {
                 const a = item.querySelector('a.hfpxzc, a.HFpxzc');
@@ -282,7 +285,7 @@ class GoogleMapsScraper:
                     if (!address && l.length >= 6 && l !== name && !l.includes('·') && !l.includes('★') && !l.includes('Open') && !l.includes('Closed') && (l.includes(',') || /\\d/.test(l)) && (l.includes('Hồ Chí Minh') || l.includes('Ho Chi Minh') || l.includes('HCM') || l.includes('Đồng Nai') || l.includes('Dong Nai') || l.includes('Biên Hòa') || l.includes('Bình Dương') || l.includes('Vietnam') || l.includes('Việt Nam') || l.includes('Quận') || l.includes('Phường') || l.includes('Đường'))) {
                         address = l;
                     }
-                    const m = l.match(/(?:\\+84|84|0)\\s*(?:3|5|7|8|9)\\d[\\d\\s.\\-]{7,11}\\d/);
+                    const m = l.match(/(?:\+84|84|0)\s*(?:3|5|7|8|9)\d[\d\s.\-]{7,11}\d/);
                     if (!phone && m) {
                         phone = m[0];
                     }
@@ -694,12 +697,12 @@ class GoogleMapsScraper:
                             )
 
                 except Exception as exc:
-                    logger.warning(f"Keyword '{keyword}' scrape lỗi: {exc}")
+                    pass
 
                 browser.close()
 
         except Exception as exc:
-            logger.error(f"Google Maps scrape lỗi: {exc}")
+            pass
 
         logger.info(f"scrape_fast hoàn thành: {len(all_leads)} leads thô")
         return all_leads

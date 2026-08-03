@@ -80,8 +80,9 @@ _HCM_KEYWORDS = [
 
 def _is_in_hcm(address: str) -> bool:
     """Kiểm tra địa chỉ CHÍNH QUY thuộc Tam Giác Vàng: HCM, Bình Dương, Đồng Nai."""
+    # SỬA LỖI 1: Địa chỉ rỗng hoặc quá ngắn -> Chặn (False)
     if not address or len(address.strip()) < 5:
-        return True
+        return False
 
     import re
 
@@ -90,6 +91,7 @@ def _is_in_hcm(address: str) -> bool:
 
     a = address.lower()
 
+    # DANH SÁCH DUY NHẤT ĐƯỢC PHÉP QUA CỬA
     valid_provinces = [
         "hồ chí minh",
         "hcm",
@@ -103,28 +105,21 @@ def _is_in_hcm(address: str) -> bool:
         "thuận an",
         "thủ dầu một",
         "long thành",
+        "nhơn trạch",
+        "trảng bom",
+        "bến cát",
+        "tân uyên",
+        "long khánh",
+        "bàu bàng",
+        "cẩm mỹ",
+        "sài gòn",
     ]
+
     if any(p in a for p in valid_provinces):
         return True
 
-    banned_provinces = [
-        "hà nội",
-        "đà nẵng",
-        "hải phòng",
-        "cần thơ",
-        "long an",
-        "vũng tàu",
-        "tây ninh",
-        "bình phước",
-        "lâm đồng",
-        "tiền giang",
-        "bến tre",
-        "nha trang",
-    ]
-    if any(p in a for p in banned_provinces):
-        return False
-
-    return True
+    # SỬA LỖI 2: Không nằm trong danh sách trên -> Chặn đứng (False)
+    return False
 
 
 def _has_website(raw: dict) -> bool:
@@ -186,8 +181,8 @@ def _is_valid_name(name: str) -> bool:
     return True
 
 
-def _is_valid_phone(phone_raw: str) -> tuple[bool, object | None]:
-    """Chuẩn hóa SĐT và kiểm tra hợp lệ (không Viettel, không tổng đài)."""
+def _is_valid_phone(phone_raw: str, allow_viettel: bool = False) -> tuple[bool, object | None]:
+    """Chuẩn hóa SĐT và kiểm tra hợp lệ (không Viettel nếu allow_viettel=False, không tổng đài)."""
     if not phone_raw:
         return False, None
 
@@ -198,7 +193,7 @@ def _is_valid_phone(phone_raw: str) -> tuple[bool, object | None]:
     if is_tong_dai(phone_vo.value):
         return False, None
 
-    if is_viettel(phone_vo.value):
+    if not allow_viettel and is_viettel(phone_vo.value):
         return False, None
 
     return True, phone_vo
@@ -294,11 +289,24 @@ def _generate_queries(kw: str) -> list[str]:
 
 # Bắt sự kiện Ctrl + C để dừng khẩn cấp lập tức (đặt sát lề trái, ngoài class)
 def _signal_handler(sig, frame):
-    print(
-        "\n🛑 [STOP] Đã nhận lệnh hủy (Ctrl+C), đang ép dừng toàn bộ các nhân...",
-        flush=True,
-    )
-    os._exit(0)
+    try:
+        sys.stdout.write("\n🛑 [STOP] Đã nhận lệnh hủy (Ctrl+C), đang dọn dẹp và thoát êm...\n")
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        os.close(devnull)
+    except Exception:
+        pass
+
+    try:
+        os.killpg(os.getpgrp(), signal.SIGKILL)
+    except Exception:
+        os._exit(0)
 
 
 # Đăng ký tín hiệu
@@ -318,7 +326,14 @@ class AutoRunUseCase:
         self._maps_scraper = maps_scraper
         self._export_use_case = export_use_case
 
-    def execute(self, keywords: list[str], target: int = 80) -> dict[str, int | str]:
+    def execute(
+        self,
+        keywords: list[str],
+        target: int = 80,
+        allow_viettel: bool = False,
+        allow_web: bool = False,
+    ) -> dict[str, int | str]:
+
         import_batch_id = str(uuid.uuid4())
         logger.info(f"Bắt đầu đợt cào mới | Mã đợt: {import_batch_id}")
 
@@ -395,7 +410,11 @@ class AutoRunUseCase:
 
         def _worker_task(original_kw: str, kw: str, worker_id: int):
             with data_lock:
-                if len(batch_leads) >= TARGET:
+                # 🛑 FIX 1: Dừng nếu đạt chỉ tiêu của riêng ngành này HOẶC đạt chỉ tiêu tổng
+                if (
+                    len(batch_leads) >= TARGET
+                    or counts_by_kw[original_kw] >= targets_by_kw[original_kw]
+                ):
                     return
 
             os_names = ["Linux", "Mac", "Win"]
@@ -420,7 +439,10 @@ class AutoRunUseCase:
 
             for raw in raw_leads:
                 with data_lock:
-                    if len(batch_leads) >= TARGET:
+                    if (
+                        len(batch_leads) >= TARGET
+                        or counts_by_kw[original_kw] >= targets_by_kw[original_kw]
+                    ):
                         stop_event.set()
                         return
 
@@ -444,7 +466,7 @@ class AutoRunUseCase:
                                 stats["not_hcm"] += 1
                             continue
 
-                if _has_website(raw):
+                if not allow_web and _has_website(raw):
                     with data_lock:
                         stats["has_web"] += 1
                     continue
@@ -454,14 +476,17 @@ class AutoRunUseCase:
                         stats["not_hcm"] += 1
                     continue
 
-                valid, phone_vo = _is_valid_phone(raw.get("phone", ""))
+                valid, phone_vo = _is_valid_phone(raw.get("phone", ""), allow_viettel=allow_viettel)
                 if not valid:
                     with data_lock:
                         stats["viettel"] += 1
                     continue
 
                 with data_lock:
-                    if len(batch_leads) >= TARGET:
+                    if (
+                        len(batch_leads) >= TARGET
+                        or counts_by_kw[original_kw] >= targets_by_kw[original_kw]
+                    ):
                         stop_event.set()
                         return
 
@@ -483,27 +508,29 @@ class AutoRunUseCase:
                         continue
 
                     batch_leads.append(lead)
+                    batch_phones.add(phone_vo.value)
+                    # 🛑 FIX 2: Cộng điểm vào đúng ngành đang cào để theo dõi phân bổ
+                    counts_by_kw[original_kw] += 1
 
         # 🛑 CHẠY TUẦN TỰ TỪNG NGÀNH ĐỂ GOM KẾT QUẢ THEO KHỐI TỪ TRÊN XUỐNG DƯỚI
         import random
 
-        target_per_keyword = TARGET // len(keywords) if len(keywords) > 0 else TARGET
-        if target_per_keyword < 1:
-            target_per_keyword = TARGET
-
         for kw in keywords:
             if len(batch_leads) >= TARGET:
                 break
-                
+
             queries = _generate_queries(kw)
             random.shuffle(queries)
 
             print(
-                f"\n[*] Đang cào khối ngành: \x27{kw}\x27 (Mục tiêu: {target_per_keyword} số)...",
+                f"\n[*] Đang cào khối ngành: '{kw}' (Mục tiêu: {targets_by_kw[kw]} số)...",
                 flush=True,
             )
 
             all_queries = [(kw, q) for q in queries]
+
+            # 🛑 FIX 3: Chuyển sang ngành mới phải reset cờ báo dừng
+            stop_event.clear()
 
             with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = []
@@ -521,30 +548,14 @@ class AutoRunUseCase:
                         logger.error(f"Lỗi ở worker: {e}")
 
                     with data_lock:
-                        if len(batch_leads) >= TARGET:
+                        # 🛑 FIX 4: Break đúng theo chỉ tiêu từng khối ngành
+                        if (
+                            counts_by_kw[kw] >= targets_by_kw[kw]
+                            or len(batch_leads) >= TARGET
+                        ):
                             stop_event.set()
                             executor.shutdown(wait=False, cancel_futures=True)
                             break
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = []
-            for idx, kw in enumerate(all_queries):
-                worker_id = (idx % 3) + 1
-                original_kw, q_str = kw
-                futures.append(
-                    executor.submit(_worker_task, original_kw, q_str, worker_id)
-                )
-
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logger.error(f"Lỗi ở worker: {e}")
-
-                with data_lock:
-                    if len(batch_leads) >= TARGET:
-                        stop_event.set()
-                        executor.shutdown(wait=False, cancel_futures=True)
-                        break
 
         print("\n\n")
 
