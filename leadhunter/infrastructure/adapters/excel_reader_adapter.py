@@ -99,6 +99,11 @@ class ExcelReaderAdapter(IngestionSourceAdapter):
                 "contact": "contact_name",
                 "link google maps": "source_reference",
                 "tình trạng": "status",
+                "status": "status",
+                "điểm": "score",
+                "score": "score",
+                "ghi chú": "notes",
+                "notes": "notes",
             }
 
             for ws in sheets_to_read:
@@ -130,6 +135,9 @@ class ExcelReaderAdapter(IngestionSourceAdapter):
                         "phone": "",
                         "website": "",
                         "address": "",
+                        "status": "",
+                        "score": "",
+                        "notes": "",
                     }
                     for h, val in zip(headers, row_values):
                         if h:

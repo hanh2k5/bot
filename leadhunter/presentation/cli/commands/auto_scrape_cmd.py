@@ -24,11 +24,19 @@ from leadhunter.presentation.cli.formatters.table_formatter import format_table
 )
 @click.option(
     "--viettel/--no-viettel", "allow_viettel",
-    default=False, help="Cho phép lấy cả số Viettel (Mặc định: --no-viettel)"
+    default=False, help="Lọc lấy số Viettel"
+)
+@click.option(
+    "--vina/--no-vina", "allow_vina",
+    default=False, help="Lọc lấy số VinaPhone"
+)
+@click.option(
+    "--mobi/--no-mobi", "allow_mobi",
+    default=False, help="Lọc lấy số MobiFone"
 )
 @click.option(
     "--web/--no-web", "allow_web",
-    default=False, help="Cho phép lấy cả công ty đã có Website (Mặc định: --no-web)"
+    default=False, help="Lọc lấy địa điểm có Website"
 )
 @click.pass_context
 def auto_scrape_cmd(
@@ -37,6 +45,8 @@ def auto_scrape_cmd(
     output_format: str,
     target: int,
     allow_viettel: bool,
+    allow_vina: bool,
+    allow_mobi: bool,
     allow_web: bool,
 ) -> None:
     """Run daily automated scraper with smart filters (HCM, No Viettel, No Web)."""
@@ -84,6 +94,8 @@ def auto_scrape_cmd(
             parsed_keywords,
             target=target,
             allow_viettel=allow_viettel,
+            allow_vina=allow_vina,
+            allow_mobi=allow_mobi,
             allow_web=allow_web,
         )
         click.secho(f"\n✅ Hoàn thành Auto-scrape! Kết quả đã được lưu.", fg="green")

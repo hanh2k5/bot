@@ -173,6 +173,22 @@ class ImportLeadsFromFileUseCase:
                         import_batch_id=batch_id,
                     )
                     self._repository.add_duplicate_log(dup_log)
+                    
+                    # Update existing record's notes and status if edited in Excel
+                    try:
+                        existing_lead = self._repository.get_by_id(dup_lead_id)
+                        if existing_lead:
+                            updated = False
+                            if lead.notes and lead.notes != existing_lead.notes:
+                                existing_lead.notes = lead.notes
+                                updated = True
+                            if lead.status and lead.status != existing_lead.status and lead.status != LeadStatus.NEW:
+                                existing_lead.status = lead.status
+                                updated = True
+                            if updated:
+                                self._repository.update(existing_lead)
+                    except Exception as ex:
+                        logger.error(f"Error updating duplicate lead notes/status: {ex}")
                     continue
 
                 self._repository.add(lead)
@@ -280,6 +296,43 @@ class ImportLeadsFromFileUseCase:
         except DomainError:
             contact_str = contact_raw
 
+        status_raw = data.get("status", "").strip()
+        status_val = LeadStatus.NEW
+        notes_val = data.get("notes", "").strip()
+
+        if status_raw:
+            status_upper = status_raw.upper()
+            status_map = {
+                "MỚI": LeadStatus.NEW,
+                "NEW": LeadStatus.NEW,
+                "ĐÃ LIÊN HỆ": LeadStatus.CONTACTED,
+                "CONTACTED": LeadStatus.CONTACTED,
+                "ĐÃ XÁC THỰC": LeadStatus.VALIDATED,
+                "VALIDATED": LeadStatus.VALIDATED,
+                "TIỀM NĂNG": LeadStatus.QUALIFIED,
+                "QUALIFIED": LeadStatus.QUALIFIED,
+                "ĐÃ CHỐT": LeadStatus.CONVERTED,
+                "CONVERTED": LeadStatus.CONVERTED,
+                "BỊ TỪ CHỐI": LeadStatus.REJECTED,
+                "REJECTED": LeadStatus.REJECTED,
+                "TRÙNG LẶP": LeadStatus.DUPLICATE,
+                "DUPLICATE": LeadStatus.DUPLICATE,
+            }
+            if status_upper in status_map:
+                status_val = status_map[status_upper]
+            else:
+                # If it's a custom note (e.g. "cúp máy", "ko bắt máy", "ko liên lạc được")
+                # Store it in notes and mark status as CONTACTED (Đã liên hệ/đã gọi điện)
+                if not notes_val:
+                    notes_val = status_raw
+                status_val = LeadStatus.CONTACTED
+
+        try:
+            score_raw = data.get("score", "0").strip()
+            score_val = int(float(score_raw)) if score_raw else 0
+        except Exception:
+            score_val = 0
+
         return Lead(
             company_name=company_vo.value,
             contact_name=contact_str,
@@ -289,7 +342,9 @@ class ImportLeadsFromFileUseCase:
             address=normalize_address(data.get("address", "")),
             source=self._adapter.source_type,
             source_reference=source_reference,
-            status=LeadStatus.NEW,
+            status=status_val,
+            score=score_val,
+            notes=notes_val,
             import_batch_id=batch_id,
             phone_normalized=phone_vo.normalized,
         )

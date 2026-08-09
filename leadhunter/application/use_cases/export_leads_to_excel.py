@@ -35,7 +35,7 @@ class ExportLeadsToExcelUseCase:
         self,
         repository: LeadRepository,
         excel_writer: "ExcelWriterPort",  # type: ignore[name-defined]
-        export_dir: str = ".",
+        export_dir: str = "exports",
         actor: str = "cli",
     ) -> None:
         self._repository = repository

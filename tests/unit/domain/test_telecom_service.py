@@ -17,10 +17,10 @@ def test_is_viettel_e164() -> None:
 
 
 def test_is_not_viettel() -> None:
-    # Other networks (Mobi: 090, Vina: 091, Vietnamobile: 092)
+    # Other networks (Mobi: 090, Vina: 091)
     assert is_viettel("0901234567") is False
     assert is_viettel("0919876543") is False
-    assert is_viettel("0923334444") is False
+    assert is_viettel("0905555555") is False
     assert is_viettel("+84901234567") is False
     assert is_viettel("84919876543") is False
 

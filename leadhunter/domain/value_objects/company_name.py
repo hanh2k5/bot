@@ -34,20 +34,14 @@ class CompanyName:
     __slots__ = ("_value",)
 
     def __init__(self, raw: str) -> None:
-        """Construct and normalise a CompanyName.
-
-        Args:
-            raw: Raw company name from an external source.
-
-        Raises:
-            InvalidCompanyNameError: If ``raw`` is blank after normalisation.
-        """
+        if not raw or not isinstance(raw, str):
+            raise InvalidCompanyNameError(raw or "")
         # Remove control characters first
         cleaned = _CONTROL_CHARS_PATTERN.sub("", raw)
         # Normalise unicode (NFC) then strip whitespace
         normalised = unicodedata.normalize("NFC", cleaned).strip()
-        # Title-case (handles ASCII; preserves intent for Vietnamese mixed-case)
-        normalised = normalised.title()
+        # Collapse multiple internal spaces and Title-case
+        normalised = " ".join(normalised.split()).title()
 
         if not normalised:
             raise InvalidCompanyNameError(raw)

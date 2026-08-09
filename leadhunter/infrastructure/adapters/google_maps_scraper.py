@@ -72,6 +72,8 @@ class GoogleMapsScraper:
         is_duplicate_fn=None,
         worker_id: int = 1,
         stop_event=None,
+        allow_viettel: bool = False,
+        allow_web: bool = False,
     ) -> list[dict[str, str]]:
         """Google Maps scraper — network-first for high yield.
 
@@ -318,7 +320,7 @@ class GoogleMapsScraper:
                 cleaned = "0" + cleaned[2:]
             if is_tong_dai(cleaned):
                 return False, ""
-            if is_viettel(cleaned):
+            if not allow_viettel and is_viettel(cleaned):
                 return False, ""
             return True, cleaned
 
@@ -451,6 +453,14 @@ class GoogleMapsScraper:
                             if stop_event and stop_event.is_set():
                                 break
                             if c["href"] not in seen_hrefs:
+                                # Kiểm tra trùng lặp trước khi click hoặc thêm vào danh sách cào
+                                if is_duplicate_fn:
+                                    try:
+                                        is_dup = is_duplicate_fn(c["phone"], c["name"], c["href"])
+                                    except TypeError:
+                                        is_dup = is_duplicate_fn(c["phone"], c["name"])
+                                    if is_dup:
+                                        continue
                                 seen_hrefs.add(c["href"])
                                 try:
                                     # Click the actual card to trigger detail panel & RPC
@@ -501,200 +511,209 @@ class GoogleMapsScraper:
                             flush=True,
                         )
 
-                    for place_url in seen_hrefs:
-                        if stop_event and stop_event.is_set():
-                            break
-                        if len(all_leads) >= min_clean_target:
-                            break
+                    detail_page = None
+                    try:
+                        for place_url in seen_hrefs:
+                            if stop_event and stop_event.is_set():
+                                break
+                            if len(all_leads) >= min_clean_target:
+                                break
 
-                        # Tìm thông tin thẻ cơ bản tương ứng với URL
-                        card_info = next(
-                            (c for c in cards if c["href"] == place_url), None
-                        )
-                        if not card_info:
-                            continue
+                            # Tìm thông tin thẻ cơ bản tương ứng với URL
+                            card_info = next(
+                                (c for c in cards if c["href"] == place_url), None
+                            )
+                            if not card_info:
+                                continue
 
-                        place_name = card_info["name"]
-                        if not place_name:
-                            continue
+                            place_name = card_info["name"]
+                            if not place_name:
+                                continue
 
-                        # Loại bỏ các chuỗi rác
-                        if _is_place_id_or_junk(place_name):
-                            continue
-                        if any(j in place_name.lower() for j in JUNK_NAMES):
-                            continue
-                        if _DISTRICT_RE.match(place_name):
-                            continue
+                            # Loại bỏ các chuỗi rác
+                            if _is_place_id_or_junk(place_name):
+                                continue
+                            if any(j in place_name.lower() for j in JUNK_NAMES):
+                                continue
+                            if _DISTRICT_RE.match(place_name):
+                                continue
 
-                        place_addr = card_info["address"]
-                        place_phone = card_info["phone"]
-                        place_web = card_info["website"]
+                            place_addr = card_info["address"]
+                            place_phone = card_info["phone"]
+                            place_web = card_info["website"]
 
-                        # Check duplicate theo tên (tránh gọi nhiều lần hàm _is_duplicate_fn)
-                        if is_duplicate_fn and is_duplicate_fn(place_phone, place_name):
-                            if status_callback:
-                                status_callback(
-                                    f"❌ [ {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
-                                    len(all_leads),
-                                )
-                            else:
-                                print(
-                                    f"  ❌ [ {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
-                                    flush=True,
-                                )
-                            continue
-
-                        p_str = place_phone
-                        if not p_str or not place_addr or len(place_addr) < 15:
-                            # Trực tiếp mở URL trang cơ sở để trích xuất 100% SĐT, Địa chỉ chi tiết có số nhà, Tên và Website
-                            d_page = None
-                            try:
-                                d_page = context.new_page()
-                                d_page.goto(
-                                    place_url,
-                                    wait_until="domcontentloaded",
-                                    timeout=6000,
-                                )
+                            # Check duplicate theo tên/URL (tránh gọi nhiều lần hàm _is_duplicate_fn)
+                            is_dup = False
+                            if is_duplicate_fn:
                                 try:
-                                    d_page.wait_for_selector(
-                                        "h1.DUwfe, h1", timeout=3000
+                                    is_dup = is_duplicate_fn(place_phone, place_name, place_url)
+                                except TypeError:
+                                    is_dup = is_duplicate_fn(place_phone, place_name)
+                            if is_dup:
+                                if status_callback:
+                                    status_callback(
+                                        f"❌ [ {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
+                                        len(all_leads),
                                     )
-                                    # Wait specifically for the phone button if we don't have phone
-                                    if not place_phone:
-                                        d_page.wait_for_selector(
-                                            'button[data-item-id*="phone"]',
-                                            timeout=1500,
-                                        )
-                                except Exception:
-                                    pass
-                                time.sleep(1.2)
-                                detail = d_page.evaluate(
-                                    """() => {
-                                    const h1 = document.querySelector('h1.DUwfe, h1');
-                                    const addrBtn = document.querySelector('button[data-item-id="address"]');
-                                    const phoneBtn = document.querySelector('button[data-item-id*="phone"]');
-                                    const webBtn = document.querySelector('a[data-item-id="authority"]');
-                                    return {
-                                        name: h1 ? h1.innerText.trim() : '',
-                                        address: addrBtn ? addrBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
-                                        phone: phoneBtn ? phoneBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
-                                        website: webBtn ? (webBtn.href || '') : ''
-                                    };
-                                }"""
-                                )
-                                if detail.get("phone"):
-                                    p_str = detail["phone"]
-                                if detail.get("address") and len(
-                                    detail["address"]
-                                ) > len(place_addr):
-                                    place_addr = detail["address"]
-                                if detail.get("name") and len(detail["name"]) > len(
-                                    place_name
-                                ):
-                                    place_name = detail["name"]
-                                if detail.get("website"):
-                                    place_web = detail["website"]
-                            except Exception:
-                                pass
-                            finally:
-                                if d_page:
+                                else:
+                                    print(
+                                        f"  ❌ [ {os_name}] Bỏ qua: {place_name[:30]} (Trùng lặp)",
+                                        flush=True,
+                                    )
+                                continue
+
+                            p_str = place_phone
+                            need_detail = not p_str or not place_addr or len(place_addr) < 15 or (allow_web and not place_web)
+                            if need_detail:
+                                # Trực tiếp mở URL trang cơ sở để trích xuất 100% SĐT, Địa chỉ chi tiết có số nhà, Tên và Website
+                                try:
+                                    if not detail_page:
+                                        detail_page = context.new_page()
+                                    detail_page.goto(
+                                        place_url,
+                                        wait_until="domcontentloaded",
+                                        timeout=6000,
+                                    )
                                     try:
-                                        d_page.close()
+                                        detail_page.wait_for_selector(
+                                            "h1.DUwfe, h1", timeout=3000
+                                        )
+                                        # Wait specifically for the phone button if we don't have phone
+                                        if not place_phone:
+                                            detail_page.wait_for_selector(
+                                                'button[data-item-id*="phone"]',
+                                                timeout=1500,
+                                            )
                                     except Exception:
                                         pass
-
-                        if not p_str:
-                            # Ghép SĐT từ RPC leads dựa vào Name hoặc Address để tránh gán nhầm
-                            for ph, info in list(rpc_leads.items()):
-                                if ph in seen_phones:
-                                    continue
-                                if info["name"] and (
-                                    info["name"].lower() in place_name.lower()
-                                    or place_name.lower() in info["name"].lower()
-                                ):
-                                    p_str = ph
-                                    break
-                                if (
-                                    info["address"]
-                                    and place_addr
-                                    and (
-                                        info["address"].lower() in place_addr.lower()
-                                        or place_addr.lower() in info["address"].lower()
+                                    time.sleep(1.2)
+                                    detail = detail_page.evaluate(
+                                        """() => {
+                                        const h1 = document.querySelector('h1.DUwfe, h1');
+                                        const addrBtn = document.querySelector('button[data-item-id="address"]');
+                                        const phoneBtn = document.querySelector('button[data-item-id*="phone"]');
+                                        const webBtn = document.querySelector('a[data-item-id="authority"]');
+                                        return {
+                                            name: h1 ? h1.innerText.trim() : '',
+                                            address: addrBtn ? addrBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
+                                            phone: phoneBtn ? phoneBtn.innerText.replace(/^[\\s\\S]*?\\n/, '').trim() : '',
+                                            website: webBtn ? (webBtn.href || '') : ''
+                                        };
+                                    }"""
                                     )
-                                ):
-                                    p_str = ph
-                                    break
+                                    if detail.get("phone"):
+                                        p_str = detail["phone"]
+                                    if detail.get("address") and len(
+                                        detail["address"]
+                                    ) > len(place_addr):
+                                        place_addr = detail["address"]
+                                    if detail.get("name") and len(detail["name"]) > len(
+                                        place_name
+                                    ):
+                                        place_name = detail["name"]
+                                    if detail.get("website"):
+                                        place_web = detail["website"]
+                                except Exception:
+                                    pass
 
-                        # BẮT BUỘC BỎ QUA NẾU ĐƠN VỊ CÓ WEBSITE THỰC TẾ (co web bo qua)
-                        if _is_professional_website(place_web):
-                            if status_callback:
-                                status_callback(
-                                    f"🚫 [ {os_name}] Bỏ qua: {place_name[:30]} (Có Web)",
-                                    len(all_leads),
-                                )
-                            else:
-                                print(
-                                    f"  🚫 [ {os_name}] [Bỏ qua - Có Web]: {place_name[:30]} ({place_web[:20]}...)",
-                                    flush=True,
-                                )
-                            continue
+                            if not p_str:
+                                # Ghép SĐT từ RPC leads dựa vào Name hoặc Address để tránh gán nhầm
+                                for ph, info in list(rpc_leads.items()):
+                                    if ph in seen_phones:
+                                        continue
+                                    if info["name"] and (
+                                        info["name"].lower() in place_name.lower()
+                                        or place_name.lower() in info["name"].lower()
+                                    ):
+                                        p_str = ph
+                                        break
+                                    if (
+                                        info["address"]
+                                        and place_addr
+                                        and (
+                                            info["address"].lower() in place_addr.lower()
+                                            or place_addr.lower() in info["address"].lower()
+                                        )
+                                    ):
+                                        p_str = ph
+                                        break
 
-                        if not p_str:
-                            if status_callback:
-                                status_callback(
-                                    f"⏳ [ {os_name}] Bỏ qua: {place_name[:30]} (Chưa có SĐT)",
-                                    len(all_leads),
-                                )
-                            else:
-                                print(
-                                    f"  ⏳ [ {os_name}] [Chưa có SĐT]: {place_name[:30]}",
-                                    flush=True,
-                                )
-                            continue
+                            # BẮT BUỘC BỎ QUA NẾU ĐƠN VỊ CÓ WEBSITE THỰC TẾ (co web bo qua)
+                            if not allow_web and _is_professional_website(place_web):
+                                if status_callback:
+                                    status_callback(
+                                        f"🚫 [ {os_name}] Bỏ qua: {place_name[:30]} (Có Web)",
+                                        len(all_leads),
+                                    )
+                                else:
+                                    print(
+                                        f"  🚫 [ {os_name}] [Bỏ qua - Có Web]: {place_name[:30]} ({place_web[:20]}...)",
+                                        flush=True,
+                                    )
+                                continue
 
-                        # BẮT BUỘC BỎ QUA NẾU LÀ TỔNG ĐÀI / MÁY BÀN
-                        ok, clean_p = _is_clean_phone(p_str)
-                        if not ok:
-                            if status_callback:
-                                status_callback(
-                                    f"⏭️ [ {os_name}] Bỏ qua: {place_name[:30]} (Số bàn {p_str})",
-                                    len(all_leads),
-                                )
-                            else:
-                                print(
-                                    f"  ⏭️ [ {os_name}] [Bỏ qua - Số bàn {p_str}]: {place_name[:30]}",
-                                    flush=True,
-                                )
-                            continue
+                            if not p_str:
+                                if status_callback:
+                                    status_callback(
+                                        f"⏳ [ {os_name}] Bỏ qua: {place_name[:30]} (Chưa có SĐT)",
+                                        len(all_leads),
+                                    )
+                                else:
+                                    print(
+                                        f"  ⏳ [ {os_name}] [Chưa có SĐT]: {place_name[:30]}",
+                                        flush=True,
+                                    )
+                                continue
 
-                        if clean_p in seen_phones:
-                            continue
+                            # BẮT BUỘC BỎ QUA NẾU LÀ TỔNG ĐÀI / MÁY BÀN
+                            ok, clean_p = _is_clean_phone(p_str)
+                            if not ok:
+                                if status_callback:
+                                    status_callback(
+                                        f"⏭️ [ {os_name}] Bỏ qua: {place_name[:30]} (Số bàn {p_str})",
+                                        len(all_leads),
+                                    )
+                                else:
+                                    print(
+                                        f"  ⏭️ [ {os_name}] [Bỏ qua - Số bàn {p_str}]: {place_name[:30]}",
+                                        flush=True,
+                                    )
+                                continue
 
-                        seen_phones.add(clean_p)
+                            if clean_p in seen_phones:
+                                continue
 
-                        all_leads.append(
-                            {
-                                "company_name": place_name,
-                                "contact_name": "",
-                                "email": "",
-                                "phone": clean_p,
-                                "website": "",
-                                "address": place_addr,
-                                "source": "",
-                                "source_reference": place_url,
-                            }
-                        )
+                            seen_phones.add(clean_p)
 
-                        if status_callback:
-                            status_callback(
-                                f"🔎 [ {os_name}] {place_name[:25]} | {clean_p}",
-                                -1,
+                            all_leads.append(
+                                {
+                                    "company_name": place_name,
+                                    "contact_name": "",
+                                    "email": "",
+                                    "phone": clean_p,
+                                    "website": place_web or "",
+                                    "address": place_addr,
+                                    "source": "",
+                                    "source_reference": place_url,
+                                }
                             )
-                        else:
-                            print(
-                                f"  🔎 [ {os_name}] [ĐÃ TÌM THẤY LEAD] {place_name} | {clean_p}",
-                                flush=True,
-                            )
+
+                            if status_callback:
+                                status_callback(
+                                    f"🔎 [ {os_name}] {place_name[:25]} | {clean_p}",
+                                    -1,
+                                )
+                            else:
+                                print(
+                                    f"  🔎 [ {os_name}] [ĐÃ TÌM THẤY LEAD] {place_name} | {clean_p}",
+                                    flush=True,
+                                )
+                    finally:
+                        if detail_page:
+                            try:
+                                detail_page.close()
+                            except Exception:
+                                pass
 
                 except Exception as exc:
                     pass

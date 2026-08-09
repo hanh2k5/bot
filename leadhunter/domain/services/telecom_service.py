@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-# Danh sách đầu số Viettel (bao gồm 032-039, 086, 087, 096, 097, 098)
+# Danh sách đầu số Viettel & Phụ (bao gồm 032-039, 086, 087, 096, 097, 098, 056, 058, 052, 055, 059, 092)
 _VIETTEL_3DIGITS: Final[frozenset[str]] = frozenset(
     {
         "096",
@@ -24,25 +24,54 @@ _VIETTEL_3DIGITS: Final[frozenset[str]] = frozenset(
         "037",
         "038",
         "039",
+        "056",
+        "058",
+        "052",
+        "055",
+        "059",
+        "092",
+        "099",
     }
 )
 
 
-def is_viettel(phone_number: str) -> bool:
-    """HÀM KIỂM TRA SỐ ĐIỆN THOẠI VIETTEL (Bao gồm cả 087 Itelecom mạng Viettel).
+_VINAPHONE_3DIGITS: Final[frozenset[str]] = frozenset(
+    {"081", "082", "083", "084", "085", "088", "091", "094"}
+)
 
-    Trả về True nếu SĐT thuộc mạng Viettel (cần loại bỏ theo yêu cầu).
-    """
+_MOBIFONE_3DIGITS: Final[frozenset[str]] = frozenset(
+    {"070", "076", "077", "078", "079", "089", "090", "093"}
+)
+
+
+def is_viettel(phone_number: str) -> bool:
     cleaned = phone_number.strip().replace(" ", "").replace("-", "").replace(".", "")
     if cleaned.startswith("+84"):
         cleaned = "0" + cleaned[3:]
     elif cleaned.startswith("84") and len(cleaned) >= 10:
         cleaned = "0" + cleaned[2:]
 
-    if len(cleaned) >= 3 and cleaned[:3] in _VIETTEL_3DIGITS:
-        return True
+    return len(cleaned) >= 3 and cleaned[:3] in _VIETTEL_3DIGITS
 
-    return False
+
+def is_vinaphone(phone_number: str) -> bool:
+    cleaned = phone_number.strip().replace(" ", "").replace("-", "").replace(".", "")
+    if cleaned.startswith("+84"):
+        cleaned = "0" + cleaned[3:]
+    elif cleaned.startswith("84") and len(cleaned) >= 10:
+        cleaned = "0" + cleaned[2:]
+
+    return len(cleaned) >= 3 and cleaned[:3] in _VINAPHONE_3DIGITS
+
+
+def is_mobifone(phone_number: str) -> bool:
+    cleaned = phone_number.strip().replace(" ", "").replace("-", "").replace(".", "")
+    if cleaned.startswith("+84"):
+        cleaned = "0" + cleaned[3:]
+    elif cleaned.startswith("84") and len(cleaned) >= 10:
+        cleaned = "0" + cleaned[2:]
+
+    return len(cleaned) >= 3 and cleaned[:3] in _MOBIFONE_3DIGITS
 
 
 def is_tong_dai(phone_number: str) -> bool:

@@ -75,19 +75,10 @@ def normalize_website(raw: str) -> Website:
     return Website(raw)
 
 
-def normalize_address(raw: str) -> str:
-    """Normalize an address string (REQ-022).
-
-    Phase 1 normalization: strip leading/trailing whitespace and remove
-    control characters only. No deep address parsing is performed.
-
-    Args:
-        raw: Raw address string.
-
-    Returns:
-        Normalized address string.
-    """
-    cleaned = _CONTROL_CHARS_PATTERN.sub("", raw)
+def normalize_address(raw: str | None) -> str:
+    if not raw:
+        return ""
+    cleaned = _CONTROL_CHARS_PATTERN.sub("", str(raw))
     cleaned = unicodedata.normalize("NFC", cleaned).strip()
     # Collapse internal multiple spaces/newlines to single space
     cleaned = _EXTRA_WHITESPACE_PATTERN.sub(" ", cleaned)

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     )
 
 from leadhunter.domain.entities.lead import Lead, LeadStatus
-from leadhunter.domain.services.telecom_service import is_viettel, is_tong_dai
+from leadhunter.domain.services.telecom_service import is_viettel, is_vinaphone, is_mobifone, is_tong_dai
 from leadhunter.domain.services.normalization_service import (
     normalize_address,
     normalize_company_name,
@@ -113,6 +113,19 @@ def _is_in_hcm(address: str) -> bool:
         "bàu bàng",
         "cẩm mỹ",
         "sài gòn",
+        "vũng tàu",
+        "bà rịa",
+        "tây ninh",
+        "bình phước",
+        "tiền giang",
+        "mỹ tho",
+        "cần thơ",
+        "long an",
+        "tân an",
+        "bến tre",
+        "vĩnh long",
+        "việt nam",
+        "vietnam",
     ]
 
     if any(p in a for p in valid_provinces):
@@ -124,7 +137,10 @@ def _is_in_hcm(address: str) -> bool:
 
 def _has_website(raw: dict) -> bool:
     """Trả về True nếu đơn vị đã có website."""
-    return bool(raw.get("website", "").strip())
+    web = raw.get("website")
+    if not web or not isinstance(web, str):
+        return False
+    return bool(web.strip())
 
 
 _JUNK_UI_BUTTONS = {
@@ -181,8 +197,13 @@ def _is_valid_name(name: str) -> bool:
     return True
 
 
-def _is_valid_phone(phone_raw: str, allow_viettel: bool = False) -> tuple[bool, object | None]:
-    """Chuẩn hóa SĐT và kiểm tra hợp lệ (không Viettel nếu allow_viettel=False, không tổng đài)."""
+def _is_valid_phone(
+    phone_raw: str,
+    allow_viettel: bool = False,
+    allow_vina: bool = False,
+    allow_mobi: bool = False,
+) -> tuple[bool, object | None]:
+    """Chuẩn hóa SĐT và kiểm tra nhà mạng theo lựa chọn của người dùng."""
     if not phone_raw:
         return False, None
 
@@ -190,11 +211,28 @@ def _is_valid_phone(phone_raw: str, allow_viettel: bool = False) -> tuple[bool, 
     if not phone_vo or not phone_vo.value:
         return False, None
 
-    if is_tong_dai(phone_vo.value):
+    val = phone_vo.value
+
+    # 1. Luôn lọc BỎ số bàn / tổng đài (024, 028, 1900, 1800...)
+    if is_tong_dai(val):
         return False, None
 
-    if not allow_viettel and is_viettel(phone_vo.value):
+    # 2. Khi bỏ tích + Viettel (allow_viettel=False): CHẶN SỐ VIETTEL
+    if not allow_viettel and is_viettel(val):
         return False, None
+
+    # 3. Nếu người dùng bật cờ lọc riêng cho Vina hoặc Mobi (dành cho CLI)
+    if allow_vina or allow_mobi:
+        matched = False
+        if allow_viettel and is_viettel(val):
+            matched = True
+        if allow_vina and is_vinaphone(val):
+            matched = True
+        if allow_mobi and is_mobifone(val):
+            matched = True
+
+        if not matched:
+            return False, None
 
     return True, phone_vo
 
@@ -204,13 +242,16 @@ def _is_duplicate(
     company_name: str,
     batch_seen_phones: set[str],
     repository: "LeadRepository",
+    url: str = "",
 ) -> bool:
-    """Kiểm tra SĐT đã tồn tại chưa (trong đợt hiện tại hoặc trong CSDL lịch sử)."""
-    if phone_value in batch_seen_phones:
+    """Kiểm tra SĐT/tên/URL đã tồn tại chưa (trong đợt hiện tại hoặc trong CSDL lịch sử)."""
+    if phone_value and phone_value in batch_seen_phones:
         return True
 
     dups = repository.find_duplicates(
-        company_name=company_name.lower(), phone=phone_value
+        company_name=company_name.lower() if company_name else None,
+        phone=phone_value if phone_value else None,
+        url=url if url else None,
     )
     return bool(dups)
 
@@ -227,7 +268,7 @@ def _build_lead(raw: dict, phone_vo, import_batch_id: str) -> Lead | None:
         contact_name="",
         email="",
         phone=phone_vo.value,
-        website="",
+        website=raw.get("website", "") or "",
         address=normalize_address(raw.get("address", "")),
         source=raw.get("source", "google_maps"),
         source_reference=raw.get("source_reference", ""),
@@ -242,8 +283,8 @@ def _build_lead(raw: dict, phone_vo, import_batch_id: str) -> Lead | None:
 # ---------------------------------------------------------------------------
 
 
-def _generate_queries(kw: str) -> list[str]:
-    """Tự động rải quân đều khắp 3 vùng: HCM, Bình Dương, Đồng Nai."""
+def _generate_queries(kw: str, pass_num: int = 1) -> list[str]:
+    """Tự động rải quân đa tầng (Multi-pass expansion) tới khi cào đủ Target mới thôi."""
     base_kw = f'"{kw.lower().strip()}"'
 
     if any(
@@ -261,29 +302,22 @@ def _generate_queries(kw: str) -> list[str]:
     ):
         return [base_kw]
 
-    locations = [
-        "Quận 1",
-        "Biên Hòa",
-        "Dĩ An",
-        "Quận 7",
-        "Thuận An",
-        "Long Thành",
-        "Quận 9",
-        "Thủ Dầu Một",
-        "Trảng Bom",
-        "Tân Bình",
-        "Bến Cát",
-        "Nhơn Trạch",
-        "Gò Vấp",
-        "Tân Uyên",
-        "Long Khánh",
-        "Thủ Đức",
-        "Bàu Bàng",
-        "Cẩm Mỹ",
-        "Bình Thạnh",
-        "Quận 10",
-        "Quận 12",
-    ]
+    if pass_num == 1:
+        locations = [
+            "Quận 1", "Biên Hòa", "Dĩ An", "Quận 7", "Thuận An", "Long Thành",
+            "Quận 9", "Thủ Dầu Một", "Trảng Bom", "Tân Bình", "Bến Cát", "Nhơn Trạch",
+            "Gò Vấp", "Tân Uyên", "Long Khánh", "Thủ Đức", "Bàu Bàng", "Cẩm Mỹ",
+            "Bình Thạnh", "Quận 10", "Quận 12"
+        ]
+    elif pass_num == 2:
+        locations = [
+            "Quận 2", "Quận 3", "Quận 4", "Quận 5", "Quận 6", "Quận 8", "Quận 11",
+            "Tân Phú", "Phú Nhuận", "Bình Tân", "Hóc Môn", "Củ Chi", "Nhà Bè", "Bình Chánh",
+            "Vũng Tàu", "Bà Rịa", "Tây Ninh", "Bình Phước", "Tiền Giang", "Mỹ Tho", "Cần Thơ", "Long An"
+        ]
+    else:
+        locations = ["TP.HCM", "Bình Dương", "Đồng Nai", "Việt Nam", "Miền Nam"]
+
     return [f"{base_kw} {loc}" for loc in locations]
 
 
@@ -331,6 +365,8 @@ class AutoRunUseCase:
         keywords: list[str],
         target: int = 80,
         allow_viettel: bool = False,
+        allow_vina: bool = False,
+        allow_mobi: bool = False,
         allow_web: bool = False,
     ) -> dict[str, int | str]:
 
@@ -404,9 +440,9 @@ class AutoRunUseCase:
                 sys.stdout.write(f"  {b}\r")
                 sys.stdout.flush()
 
-        def dup_check_fn(p: str, n: str):
+        def dup_check_fn(p: str, n: str, url: str = ""):
             with data_lock:
-                return _is_duplicate(p, n, batch_phones, self._repository)
+                return _is_duplicate(p, n, batch_phones, self._repository, url)
 
         def _worker_task(original_kw: str, kw: str, worker_id: int):
             with data_lock:
@@ -429,6 +465,8 @@ class AutoRunUseCase:
                 is_duplicate_fn=dup_check_fn,
                 worker_id=worker_id,
                 stop_event=stop_event,
+                allow_viettel=allow_viettel,
+                allow_web=allow_web,
             )
 
             logger.info(f"[ {worker_id}] '{kw}' → {len(raw_leads)} kết quả thô")
@@ -466,6 +504,8 @@ class AutoRunUseCase:
                                 stats["not_hcm"] += 1
                             continue
 
+                # - Khi tích chọn + Có Web (allow_web=True): Bỏ chặn Website (Cho phép lấy cả có và không có Web)
+                # - Khi bỏ tích + Có Web (allow_web=False): Chỉ lấy địa điểm CHƯA CÓ Web (chặn cơ sở có Web).
                 if not allow_web and _has_website(raw):
                     with data_lock:
                         stats["has_web"] += 1
@@ -476,7 +516,12 @@ class AutoRunUseCase:
                         stats["not_hcm"] += 1
                     continue
 
-                valid, phone_vo = _is_valid_phone(raw.get("phone", ""), allow_viettel=allow_viettel)
+                valid, phone_vo = _is_valid_phone(
+                    raw.get("phone", ""),
+                    allow_viettel=allow_viettel,
+                    allow_vina=allow_vina,
+                    allow_mobi=allow_mobi,
+                )
                 if not valid:
                     with data_lock:
                         stats["viettel"] += 1
@@ -497,6 +542,7 @@ class AutoRunUseCase:
                         self._repository,
                     ):
                         stats["dup"] += 1
+                        _print_status(f"⚠️ [TRÙNG CSDL] Bỏ qua: {name_val} | {phone_vo.value}")
                         continue
 
                     lead = _build_lead(raw, phone_vo, import_batch_id)
@@ -511,51 +557,58 @@ class AutoRunUseCase:
                     batch_phones.add(phone_vo.value)
                     # 🛑 FIX 2: Cộng điểm vào đúng ngành đang cào để theo dõi phân bổ
                     counts_by_kw[original_kw] += 1
+                    _print_status(f"🎯 [HỢP LỆ #{len(batch_leads)}] {lead.company_name} | {lead.phone}")
 
         # 🛑 CHẠY TUẦN TỰ TỪNG NGÀNH ĐỂ GOM KẾT QUẢ THEO KHỐI TỪ TRÊN XUỐNG DƯỚI
         import random
 
-        for kw in keywords:
+        for pass_num in range(1, 4):
             if len(batch_leads) >= TARGET:
                 break
 
-            queries = _generate_queries(kw)
-            random.shuffle(queries)
+            for kw_idx, kw in enumerate(keywords):
+                if len(batch_leads) >= TARGET:
+                    break
 
-            print(
-                f"\n[*] Đang cào khối ngành: '{kw}' (Mục tiêu: {targets_by_kw[kw]} số)...",
-                flush=True,
-            )
+                # Tự động tính chỉ tiêu còn thiếu để phân bổ bù đắp nếu các từ trước bị thiếu số
+                remaining_total = TARGET - len(batch_leads)
+                remaining_kws_count = len(keywords) - kw_idx
+                kw_target = max(targets_by_kw[kw], remaining_total // remaining_kws_count)
 
-            all_queries = [(kw, q) for q in queries]
+                queries = _generate_queries(kw, pass_num=pass_num)
+                random.shuffle(queries)
 
-            # 🛑 FIX 3: Chuyển sang ngành mới phải reset cờ báo dừng
-            stop_event.clear()
+                print(
+                    f"\n[*] Đang cào khối ngành (Đợt {pass_num}): '{kw}' (Mục tiêu: {kw_target} số)...",
+                    flush=True,
+                )
 
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                futures = []
-                for idx, q_tuple in enumerate(all_queries):
-                    worker_id = (idx % 3) + 1
-                    original_kw, q_str = q_tuple
-                    futures.append(
-                        executor.submit(_worker_task, original_kw, q_str, worker_id)
-                    )
+                all_queries = [(kw, q) for q in queries]
+                stop_event.clear()
 
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"Lỗi ở worker: {e}")
+                with ThreadPoolExecutor(max_workers=3) as executor:
+                    futures = []
+                    for idx, q_tuple in enumerate(all_queries):
+                        worker_id = (idx % 3) + 1
+                        original_kw, q_str = q_tuple
+                        futures.append(
+                            executor.submit(_worker_task, original_kw, q_str, worker_id)
+                        )
 
-                    with data_lock:
-                        # 🛑 FIX 4: Break đúng theo chỉ tiêu từng khối ngành
-                        if (
-                            counts_by_kw[kw] >= targets_by_kw[kw]
-                            or len(batch_leads) >= TARGET
-                        ):
-                            stop_event.set()
-                            executor.shutdown(wait=False, cancel_futures=True)
-                            break
+                    for future in as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception as e:
+                            logger.error(f"Lỗi ở worker: {e}")
+
+                        with data_lock:
+                            if (
+                                counts_by_kw[kw] >= kw_target
+                                or len(batch_leads) >= TARGET
+                            ):
+                                stop_event.set()
+                                executor.shutdown(wait=False, cancel_futures=True)
+                                break
 
         print("\n\n")
 

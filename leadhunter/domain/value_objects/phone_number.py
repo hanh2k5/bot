@@ -12,8 +12,12 @@ _DIGITS_ONLY_PATTERN: Final[re.Pattern[str]] = re.compile(r"[^\d]")
 class PhoneNumber:
     __slots__ = ("_value", "_normalized")
 
-    def __init__(self, raw: str) -> None:
-        stripped = raw.strip()
+    def __init__(self, raw: str | None) -> None:
+        if not raw:
+            self._value = ""
+            self._normalized = False
+            return
+        stripped = str(raw).strip()
         
         # Replace +84 or 84 at start with 0
         if stripped.startswith("+84"):

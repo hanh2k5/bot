@@ -73,12 +73,18 @@ class ExcelWriterAdapter:
             # Data rows
             for lead in leads:
                 phone_str = lead.phone or ""
-                # Keep original phone format or 0...
                 if phone_str.startswith("+84"):
                     phone_str = "0" + phone_str[3:]
 
                 link_src = lead.source_reference or ""
-                status_str = ""  # Tình trạng để trống theo yêu cầu
+                # Tình Trạng: blank for fresh scrape leads (NEW + no notes)
+                # Only write if telesale has actually recorded something
+                if lead.notes:
+                    status_str = lead.notes
+                elif lead.status and hasattr(lead.status, "value") and lead.status.value != "NEW":
+                    status_str = lead.status.value
+                else:
+                    status_str = ""  # Leave blank for telesale to fill in
 
                 row = [
                     phone_str,
@@ -89,25 +95,24 @@ class ExcelWriterAdapter:
                 ]
                 ws.append(row)
 
-          # Căn chỉnh tỷ lệ cột y hệt mẫu mới (Link nhỏ lại, Tên/Địa chỉ/Tình trạng rộng ra)
+            # Căn chỉnh tỷ lệ cột y hệt mẫu gốc
             col_widths = {"A": 15, "B": 45, "C": 75, "D": 18, "E": 50}
             for col_letter, width in col_widths.items():
                 ws.column_dimensions[col_letter].width = width
 
-            # Bảng màu chuẩn theo mẫu hình image_380303.png
+            # Bảng màu chuẩn 5 cột
             fill_colors = {
-                1: PatternFill(start_color="C6E0B4", end_color="C6E0B4", fill_type="solid"), # Cột 1 (SĐT): Xanh lá nhạt
-                2: PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid"), # Cột 2 (Tên): Vàng nhạt
-                3: PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid"), # Cột 3 (Địa chỉ): Xanh dương nhạt
-                4: PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid"), # Cột 4 (Link): Đỏ/Hồng nhạt
-                5: PatternFill(start_color="D9D2E9", end_color="D9D2E9", fill_type="solid")  # Cột 5 (Tình trạng): Tím nhạt
+                1: PatternFill(start_color="C6E0B4", end_color="C6E0B4", fill_type="solid"), # SĐT: Xanh lá
+                2: PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid"), # Tên: Vàng
+                3: PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid"), # Địa chỉ: Xanh dương
+                4: PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid"), # Link: Đỏ nhạt
+                5: PatternFill(start_color="D9D2E9", end_color="D9D2E9", fill_type="solid")  # Tình trạng: Tím
             }
 
             for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=5):
                 for cell in row:
                     cell.border = thin_border
                     cell.alignment = Alignment(horizontal="left", vertical="center")
-                    # Tự động đổ màu theo số thứ tự của cột
                     if cell.column in fill_colors:
                         cell.fill = fill_colors[cell.column]
 

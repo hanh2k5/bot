@@ -19,6 +19,7 @@ from leadhunter.infrastructure.logging.logging_config import (
     CorrelationIdFilter,
     configure_logging,
 )
+from leadhunter.domain.services.auth_service import check_or_prompt_activation
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ def _setup(ctx: click.Context, verbose: bool) -> None:
         ctx: Click context object.
         verbose: Whether to enable verbose console output.
     """
+    # Free open access - no license prompt
+
     config = load_config()
     configure_logging(
         log_level=config.logging.level,
@@ -69,7 +72,7 @@ from leadhunter.presentation.cli.commands.merge_cmd import merge_cmd
 from leadhunter.presentation.cli.commands.auto_scrape_cmd import auto_scrape_cmd
 from leadhunter.presentation.cli.commands.reset_db_cmd import reset_db_cmd
 from leadhunter.presentation.cli.commands.rollback_cmd import rollback_cmd
-from leadhunter.presentation.cli.commands.gop_cmd import gop_cmd
+from leadhunter.presentation.cli.commands.quet_cmd import quet_cmd
 from leadhunter.presentation.cli.commands.nap_cmd import nap_cmd
 
 cli.add_command(scrape_cmd, name="scrape")
@@ -79,8 +82,7 @@ cli.add_command(merge_cmd, name="merge-duplicate")
 cli.add_command(auto_scrape_cmd, name="auto-scrape")
 cli.add_command(reset_db_cmd, name="reset-db")
 cli.add_command(rollback_cmd, name="rollback")
-cli.add_command(gop_cmd, name="gop")
-cli.add_command(gop_cmd, name="quet")
+cli.add_command(quet_cmd, name="quet")
 cli.add_command(nap_cmd, name="nap")
 
 
@@ -136,10 +138,10 @@ def huy_main() -> None:
     sys.argv.insert(1, "rollback")
     main()
 
-def gop_main() -> None:
+def quet_main() -> None:
     """Standalone entry point for the 'gop' shortcut."""
     import sys
-    sys.argv.insert(1, "gop")
+    sys.argv.insert(1, "quet")
     main()
 
 def nap_main() -> None:
@@ -147,6 +149,17 @@ def nap_main() -> None:
     import sys
     sys.argv.insert(1, "nap")
     main()
+
+
+
+def app_main() -> None:
+    """Standalone entry point for launching the GUI App ('run' shortcut)."""
+    import os
+    import sys
+    import pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent.parent))
+    from gui_app import main as gui_run
+    gui_run()
 
 
 if __name__ == "__main__":

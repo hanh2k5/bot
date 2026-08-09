@@ -178,6 +178,7 @@ class SqliteLeadRepository(LeadRepository):
         email: Optional[str] = None,
         company_name: Optional[str] = None,
         phone: Optional[str] = None,
+        url: Optional[str] = None,
     ) -> list[Lead]:
         """Find leads matching dedup keys (REQ-027, REQ-030).
 
@@ -187,6 +188,7 @@ class SqliteLeadRepository(LeadRepository):
             email: Normalised email (optional).
             company_name: Lowercase company name (optional).
             phone: Digits-only phone (optional).
+            url: Google Maps Place URL (optional).
 
         Returns:
             List of matching Lead entities.
@@ -198,7 +200,14 @@ class SqliteLeadRepository(LeadRepository):
             with self._cm.connection() as conn:
                 results: list[Lead] = []
 
-                if email:
+                if url:
+                    row = conn.execute(
+                        "SELECT * FROM leads WHERE source_reference = ? LIMIT 1", (url,)
+                    ).fetchone()
+                    if row:
+                        results.append(_row_to_lead(row))
+
+                if email and not results:
                     row = conn.execute(
                         "SELECT * FROM leads WHERE email = ? LIMIT 1", (email,)
                     ).fetchone()
@@ -215,17 +224,6 @@ class SqliteLeadRepository(LeadRepository):
                         LIMIT 5
                         """,
                         (last_9,),
-                    ).fetchall()
-                    results.extend(_row_to_lead(r) for r in rows)
-
-                if company_name and not results:
-                    rows = conn.execute(
-                        """
-                        SELECT * FROM leads
-                        WHERE lower(company_name) = ?
-                        LIMIT 5
-                        """,
-                        (company_name.lower(),),
                     ).fetchall()
                     results.extend(_row_to_lead(r) for r in rows)
         except Exception as exc:

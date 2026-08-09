@@ -78,6 +78,7 @@ class LeadRepository(ABC):
         email: Optional[str] = None,
         company_name: Optional[str] = None,
         phone: Optional[str] = None,
+        url: Optional[str] = None,
     ) -> list[Lead]:
         """Find existing leads that match dedup criteria (REQ-027).
 

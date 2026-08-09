@@ -8,7 +8,7 @@ import click
 
 @click.command()
 @click.pass_context
-def gop_cmd(ctx: click.Context) -> None:
+def quet_cmd(ctx: click.Context) -> None:
     """Tự động quét và gộp toàn bộ các SĐT trùng lặp trong CSDL."""
     config = ctx.obj["config"]
 
