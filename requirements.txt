@@ -1,0 +1,11 @@
+# LeadHunter — pinned runtime dependencies (ENV-005)
+# Install with: pip install -r requirements.txt
+click==8.1.8
+openpyxl==3.1.5
+requests==2.32.3
+beautifulsoup4==4.12.3
+pydantic==2.10.6
+tqdm==4.67.1
+PyYAML==6.0.2
+playwright==1.49.0
+python-docx>=1.1.0
