@@ -80,67 +80,17 @@ _HCM_KEYWORDS = [
 
 def _is_in_hcm(address: str) -> bool:
     """Kiểm tra địa chỉ CHÍNH QUY thuộc Tam Giác Vàng: HCM, Bình Dương, Đồng Nai."""
-    # SỬA LỖI 1: Địa chỉ rỗng hoặc quá ngắn -> Chặn (False)
-    if not address or len(address.strip()) < 5:
-        return False
+    from leadhunter.domain.services.location_service import is_in_golden_triangle
 
-    import re
-
-    if re.match(r"^[A-Z0-9]{2,4}\+[A-Z0-9]{2,3}", address.strip()):
-        return False
-
-    a = address.lower()
-
-    # DANH SÁCH DUY NHẤT ĐƯỢC PHÉP QUA CỬA
-    valid_provinces = [
-        "hồ chí minh",
-        "hcm",
-        "tphcm",
-        "bình dương",
-        "binh duong",
-        "đồng nai",
-        "dong nai",
-        "biên hòa",
-        "dĩ an",
-        "thuận an",
-        "thủ dầu một",
-        "long thành",
-        "nhơn trạch",
-        "trảng bom",
-        "bến cát",
-        "tân uyên",
-        "long khánh",
-        "bàu bàng",
-        "cẩm mỹ",
-        "sài gòn",
-        "vũng tàu",
-        "bà rịa",
-        "tây ninh",
-        "bình phước",
-        "tiền giang",
-        "mỹ tho",
-        "cần thơ",
-        "long an",
-        "tân an",
-        "bến tre",
-        "vĩnh long",
-        "việt nam",
-        "vietnam",
-    ]
-
-    if any(p in a for p in valid_provinces):
-        return True
-
-    # SỬA LỖI 2: Không nằm trong danh sách trên -> Chặn đứng (False)
-    return False
+    return is_in_golden_triangle(address)
 
 
 def _has_website(raw: dict) -> bool:
-    """Trả về True nếu đơn vị đã có website."""
+    """Trả về True nếu đơn vị đã có website chuyên nghiệp (tên miền riêng)."""
+    from leadhunter.domain.services.website_policy_service import is_professional_website
+
     web = raw.get("website")
-    if not web or not isinstance(web, str):
-        return False
-    return bool(web.strip())
+    return is_professional_website(web)
 
 
 _JUNK_UI_BUTTONS = {
@@ -216,23 +166,10 @@ def _is_valid_phone(
     # 1. Luôn lọc BỎ số bàn / tổng đài (024, 028, 1900, 1800...)
     if is_tong_dai(val):
         return False, None
-
-    # 2. Khi bỏ tích + Viettel (allow_viettel=False): CHẶN SỐ VIETTEL
+    # 2. Khi BỎ TÍCH Viettel (allow_viettel=False): Chặn Viettel (Chỉ lấy Vina/Mobi/Số bàn)
+    #    Khi TÍCH CHỌN Viettel (allow_viettel=True): Bỏ chặn Viettel (Lấy tất cả: Viettel + Vina + Mobi + Số bàn)
     if not allow_viettel and is_viettel(val):
         return False, None
-
-    # 3. Nếu người dùng bật cờ lọc riêng cho Vina hoặc Mobi (dành cho CLI)
-    if allow_vina or allow_mobi:
-        matched = False
-        if allow_viettel and is_viettel(val):
-            matched = True
-        if allow_vina and is_vinaphone(val):
-            matched = True
-        if allow_mobi and is_mobifone(val):
-            matched = True
-
-        if not matched:
-            return False, None
 
     return True, phone_vo
 
@@ -259,7 +196,8 @@ def _is_duplicate(
 def _build_lead(raw: dict, phone_vo, import_batch_id: str) -> Lead | None:
     """Tạo entity Lead từ dữ liệu thô."""
     try:
-        company_vo = normalize_company_name(raw.get("company_name", ""))
+        company_name = raw.get("company_name") or raw.get("name", "")
+        company_vo = normalize_company_name(company_name)
     except Exception:
         return None
 
@@ -312,22 +250,46 @@ def _generate_queries(kw: str, pass_num: int = 1) -> list[str]:
     elif pass_num == 2:
         locations = [
             "Quận 2", "Quận 3", "Quận 4", "Quận 5", "Quận 6", "Quận 8", "Quận 11",
-            "Tân Phú", "Phú Nhuận", "Bình Tân", "Hóc Môn", "Củ Chi", "Nhà Bè", "Bình Chánh",
-            "Vũng Tàu", "Bà Rịa", "Tây Ninh", "Bình Phước", "Tiền Giang", "Mỹ Tho", "Cần Thơ", "Long An"
+            "Tân Phú", "Phú Nhuận", "Bình Tân", "Hóc Môn", "Củ Chi", "Nhà Bè", "Bình Chánh"
         ]
     else:
-        locations = ["TP.HCM", "Bình Dương", "Đồng Nai", "Việt Nam", "Miền Nam"]
+        locations = ["TP.HCM", "Bình Dương", "Đồng Nai"]
 
     return [f"{base_kw} {loc}" for loc in locations]
 
 
-# Bắt sự kiện Ctrl + C để dừng khẩn cấp lập tức (đặt sát lề trái, ngoài class)
-def _signal_handler(sig, frame):
+def _safe_sys_write(text: str) -> None:
+    """Safe stdout write helper that prevents UnicodeEncodeError on Windows terminals."""
     try:
-        sys.stdout.write("\n🛑 [STOP] Đã nhận lệnh hủy (Ctrl+C), đang dọn dẹp và thoát êm...\n")
+        sys.stdout.write(text)
         sys.stdout.flush()
+    except UnicodeEncodeError:
+        try:
+            if hasattr(sys.stdout, "reconfigure"):
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+                sys.stdout.write(text)
+                sys.stdout.flush()
+                return
+        except Exception:
+            pass
+        try:
+            enc = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+            buffer = getattr(sys.stdout, "buffer", None)
+            if buffer:
+                buffer.write(text.encode(enc, errors="replace"))
+                buffer.flush()
+            else:
+                sys.stdout.write(text.encode("ascii", errors="replace").decode("ascii"))
+                sys.stdout.flush()
+        except Exception:
+            pass
     except Exception:
         pass
+
+
+# Bắt sự kiện Ctrl + C để dừng khẩn cấp lập tức (đặt sát lề trái, ngoài class)
+def _signal_handler(sig, frame):
+    _safe_sys_write("\n🛑 [STOP] Đã nhận lệnh hủy (Ctrl+C), đang dọn dẹp và thoát êm...\n")
 
     try:
         devnull = os.open(os.devnull, os.O_WRONLY)
@@ -359,6 +321,11 @@ class AutoRunUseCase:
         self._repository = repository
         self._maps_scraper = maps_scraper
         self._export_use_case = export_use_case
+        try:
+            self._db_phones: set[str] = self._repository.get_all_phones()
+            _safe_sys_write(f"⚡ [RAM] Đã nạp {len(self._db_phones):,} số CSDL vào bộ nhớ\n")
+        except Exception:
+            self._db_phones = set()
 
     def execute(
         self,
@@ -378,9 +345,8 @@ class AutoRunUseCase:
         batch_phones: set[str] = set()
         TARGET = target
 
-        print(
-            f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3  Đa Luồng",
-            flush=True,
+        _safe_sys_write(
+            f"\n[*] Khởi động tìm kiếm phân bổ đều: {keywords} bằng 3  Đa Luồng\n"
         )
 
         print_lock = threading.Lock()
@@ -420,7 +386,7 @@ class AutoRunUseCase:
                 right_dashes = "-" * (t_len - pos)
 
                 b = f"\033[1m0%\033[0m \033[95m{left_dashes}{bird_segment}{right_dashes}>\033[0m \033[1m100%\033[0m"
-                sys.stdout.write("\033[2K\r")
+                _safe_sys_write("\033[2K\r")
                 if status_text and not any(
                     x in status_text
                     for x in ["Chốt đơn", "Bỏ qua", "Tìm thấy", "ĐÃ TÌM THẤY", "ĐÃ LẤY"]
@@ -435,21 +401,24 @@ class AutoRunUseCase:
                         status_text = f"\033[96m{status_text}\033[0m"
                     elif "🔍" in status_text:
                         status_text = f"\033[94m{status_text}\033[0m"
-                    sys.stdout.write(f"  {status_text}\n")
+                    _safe_sys_write(f"  {status_text}\n")
 
-                sys.stdout.write(f"  {b}\r")
-                sys.stdout.flush()
+                _safe_sys_write(f"  {b}\r")
 
         def dup_check_fn(p: str, n: str, url: str = ""):
             with data_lock:
+                if p and p.strip():
+                    clean_p = p.replace(" ", "").replace("-", "").replace(".", "").replace("+84", "0")
+                    if clean_p in self._db_phones or clean_p in batch_phones:
+                        return True
                 return _is_duplicate(p, n, batch_phones, self._repository, url)
 
-        def _worker_task(original_kw: str, kw: str, worker_id: int):
+        def _worker_task(original_kw: str, kw: str, worker_id: int, kw_target: int):
             with data_lock:
                 # 🛑 FIX 1: Dừng nếu đạt chỉ tiêu của riêng ngành này HOẶC đạt chỉ tiêu tổng
                 if (
                     len(batch_leads) >= TARGET
-                    or counts_by_kw[original_kw] >= targets_by_kw[original_kw]
+                    or counts_by_kw[original_kw] >= kw_target
                 ):
                     return
 
@@ -479,7 +448,7 @@ class AutoRunUseCase:
                 with data_lock:
                     if (
                         len(batch_leads) >= TARGET
-                        or counts_by_kw[original_kw] >= targets_by_kw[original_kw]
+                        or counts_by_kw[original_kw] >= kw_target
                     ):
                         stop_event.set()
                         return
@@ -530,7 +499,7 @@ class AutoRunUseCase:
                 with data_lock:
                     if (
                         len(batch_leads) >= TARGET
-                        or counts_by_kw[original_kw] >= targets_by_kw[original_kw]
+                        or counts_by_kw[original_kw] >= kw_target
                     ):
                         stop_event.set()
                         return
@@ -549,12 +518,20 @@ class AutoRunUseCase:
                     if not lead:
                         continue
 
-                    if not lead.address or len(lead.address.strip()) < 10:
+                    if not lead.address or len(lead.address.strip()) < 5:
                         stats["not_hcm"] += 1
                         continue
 
                     batch_leads.append(lead)
                     batch_phones.add(phone_vo.value)
+                    self._db_phones.add(phone_vo.value)
+
+                    # 🛑 LƯU CSDL NGAY LẬP TỨC REAL-TIME (Tối ưu để dừng bất kỳ lúc nào cũng không mất số)
+                    try:
+                        self._repository.add(lead)
+                    except Exception as exc:
+                        logger.error(f"Lỗi lưu DB real-time {lead.phone}: {exc}")
+
                     # 🛑 FIX 2: Cộng điểm vào đúng ngành đang cào để theo dõi phân bổ
                     counts_by_kw[original_kw] += 1
                     _print_status(f"🎯 [HỢP LỆ #{len(batch_leads)}] {lead.company_name} | {lead.phone}")
@@ -570,17 +547,21 @@ class AutoRunUseCase:
                 if len(batch_leads) >= TARGET:
                     break
 
-                # Tự động tính chỉ tiêu còn thiếu để phân bổ bù đắp nếu các từ trước bị thiếu số
-                remaining_total = TARGET - len(batch_leads)
-                remaining_kws_count = len(keywords) - kw_idx
-                kw_target = max(targets_by_kw[kw], remaining_total // remaining_kws_count)
+                # Tính tổng chỉ tiêu còn thiếu từ các từ khóa trước đó (Accumulated Shortage)
+                accumulated_shortage = 0
+                for prev_kw in keywords[:kw_idx]:
+                    kw_short = max(0, targets_by_kw[prev_kw] - counts_by_kw[prev_kw])
+                    accumulated_shortage += kw_short
+
+                remaining_kws = max(1, len(keywords) - kw_idx)
+                extra_quota = accumulated_shortage // remaining_kws
+                kw_target = targets_by_kw[kw] + extra_quota
 
                 queries = _generate_queries(kw, pass_num=pass_num)
                 random.shuffle(queries)
 
-                print(
-                    f"\n[*] Đang cào khối ngành (Đợt {pass_num}): '{kw}' (Mục tiêu: {kw_target} số)...",
-                    flush=True,
+                _safe_sys_write(
+                    f"\n[*] Đang cào khối ngành (Đợt {pass_num}): '{kw}' (Mục tiêu: {kw_target} số)...\n"
                 )
 
                 all_queries = [(kw, q) for q in queries]
@@ -592,7 +573,7 @@ class AutoRunUseCase:
                         worker_id = (idx % 3) + 1
                         original_kw, q_str = q_tuple
                         futures.append(
-                            executor.submit(_worker_task, original_kw, q_str, worker_id)
+                            executor.submit(_worker_task, original_kw, q_str, worker_id, kw_target)
                         )
 
                     for future in as_completed(futures):
@@ -610,7 +591,7 @@ class AutoRunUseCase:
                                 executor.shutdown(wait=False, cancel_futures=True)
                                 break
 
-        print("\n\n")
+        _safe_sys_write("\n\n")
 
         logger.info(
             f"Hoàn tất | Thêm: {len(batch_leads)} | "
@@ -624,15 +605,8 @@ class AutoRunUseCase:
         # BƯỚC 3.5: LƯU TỪNG LEAD VÀO DATABASE MỘT CÁCH AN TOÀN
         # ----------------------------------------------------------------
         if batch_leads:
-            saved_count = 0
-            for lead in batch_leads:
-                try:
-                    self._repository.add(lead)
-                    saved_count += 1
-                except Exception as e:
-                    logger.error(f"Lỗi khi lưu lead {lead.phone}: {e}")
             logger.info(
-                f"Đã lưu thành công {saved_count}/{len(batch_leads)} lead vào Database."
+                f"Đã lưu thành công 100% real-time ({len(batch_leads)} lead) vào Database."
             )
 
         # ----------------------------------------------------------------
@@ -656,14 +630,26 @@ class AutoRunUseCase:
         try:
             from pathlib import Path
 
-            project_root = Path(__file__).resolve().parents[3]
-            export_dir = project_root / "exports"
+            export_dir = getattr(self._export_use_case, "_export_dir", None)
+            if not export_dir:
+                project_root = Path(__file__).resolve().parents[3]
+                export_dir = project_root / "exports"
+            else:
+                export_dir = Path(export_dir)
+
             export_dir.mkdir(parents=True, exist_ok=True)
 
-            i = 1
-            while (export_dir / f"nguon {i}.xlsx").exists():
-                i += 1
-            out_path = export_dir / f"nguon {i}.xlsx"
+            existing_nums = []
+            for p in export_dir.glob("nguon *.xlsx"):
+                if p.name.startswith("~$") or p.name.startswith("."):
+                    continue
+                try:
+                    num_part = p.stem.replace("nguon ", "").strip()
+                    existing_nums.append(int(num_part))
+                except ValueError:
+                    pass
+            next_num = (max(existing_nums) + 1) if existing_nums else 1
+            out_path = export_dir / f"nguon {next_num}.xlsx"
 
             excel_writer = getattr(self._export_use_case, "_excel_writer", None)
             if excel_writer:
@@ -675,7 +661,30 @@ class AutoRunUseCase:
 
                 ExcelWriterAdapter().write(leads, str(out_path))
 
-            logger.info(f"Đã xuất {len(leads)} lead mới vào file: {out_path}")
+            logger.info(f"Đã tự động xuất file Excel: {out_path}")
+
+            # Tự động xuất file Word (.docx) 3 cột A4
+            try:
+                word_nums = []
+                for p in export_dir.glob("nguon *.docx"):
+                    if p.name.startswith("~$") or p.name.startswith("."):
+                        continue
+                    try:
+                        n_part = p.stem.replace("nguon ", "").strip()
+                        word_nums.append(int(n_part))
+                    except ValueError:
+                        pass
+                next_word_num = (max(word_nums) + 1) if word_nums else 1
+                out_word_path = export_dir / f"nguon {next_word_num}.docx"
+
+                from leadhunter.infrastructure.adapters.word_writer_adapter import (
+                    WordWriterAdapter,
+                )
+                WordWriterAdapter().write(leads, str(out_word_path))
+                logger.info(f"Đã tự động xuất file Word: {out_word_path}")
+            except Exception as w_exc:
+                logger.error(f"Lỗi tự động xuất file Word: {w_exc}")
+
             return str(out_path)
         except Exception as exc:
             logger.error(f"Lỗi xuất file Excel: {exc}")

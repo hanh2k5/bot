@@ -306,6 +306,7 @@ class ExportParamsDTO:
     keyword: Optional[str] = None
     created_from: Optional[str] = None
     created_to: Optional[str] = None
+    limit: Optional[int] = None
 
 
 @dataclass
@@ -384,3 +385,30 @@ class LeadStatusHistoryDTO:
     changed_at: str
     actor: str
     reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Scraping Funnel Stats DTO
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ScrapeStatsDTO:
+    """Real-time funnel metrics for scraping and filtering operations.
+
+    Attributes:
+        total_raw_scraped: Total raw data items harvested from Maps.
+        rejected_location: Rejected due to address outside Golden Triangle.
+        rejected_telecom: Rejected due to landline/toll-free or unparseable phone.
+        rejected_website: Rejected due to having professional domain website.
+        rejected_duplicate: Rejected due to duplicate phone (DB/RAM).
+        valid_leads: High-quality valid leads accepted into campaign.
+    """
+
+    total_raw_scraped: int = 0
+    rejected_location: int = 0
+    rejected_telecom: int = 0
+    rejected_website: int = 0
+    rejected_duplicate: int = 0
+    valid_leads: int = 0
+

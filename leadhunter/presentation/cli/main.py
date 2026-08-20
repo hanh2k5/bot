@@ -6,12 +6,32 @@ and correlation ID injection (NFR-014).
 
 from __future__ import annotations
 
+import io
 import logging
 import sys
 import traceback
 import uuid
 
 import click
+
+
+def _configure_utf8_streams() -> None:
+    """Ensure sys.stdout and sys.stderr use UTF-8 with replacement for invalid chars on Windows."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+        elif stream and hasattr(stream, "buffer"):
+            try:
+                setattr(sys, stream_name, io.TextIOWrapper(stream.buffer, encoding="utf-8", errors="replace"))
+            except Exception:
+                pass
+
+
+_configure_utf8_streams()
 
 from leadhunter import __version__
 from leadhunter.infrastructure.config.config_loader import load_config

@@ -8,17 +8,23 @@ from leadhunter.domain.entities.lead import Lead, LeadStatus, LeadStatusHistory
 from leadhunter.infrastructure.persistence.sqlite_lead_repository import SqliteLeadRepository
 
 
+import random
+
+
 def _make_lead(
     company_name: str = "Test Corp",
     email: str = "test@example.com",
+    phone: str | None = None,
     **kwargs,
 ) -> Lead:
     """Factory helper for test leads."""
+    if phone is None:
+        phone = f"+849{random.randint(10000000, 99999999)}"
     return Lead(
         company_name=company_name,
         contact_name="Test User",
         email=email,
-        phone="+84912345678",
+        phone=phone,
         website="https://test.com",
         address="123 Test St",
         source="excel",

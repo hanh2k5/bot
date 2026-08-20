@@ -8,7 +8,7 @@ from leadhunter.application.use_cases.auto_run_use_case import AutoRunUseCase
 from leadhunter.application.dtos import ExportResultDTO
 
 
-def test_auto_run_filters_correctly() -> None:
+def test_auto_run_filters_correctly(tmp_path) -> None:
     # 1. Setup mock repository and scrapers
     repo = MagicMock()
     repo.find_duplicates.return_value = []
@@ -57,8 +57,9 @@ def test_auto_run_filters_correctly() -> None:
     maps_scraper.scrape_fast.side_effect = [good_items] + [[]] * 200
 
     export_use_case = MagicMock()
+    export_use_case._export_dir = tmp_path
     export_use_case.execute.return_value = ExportResultDTO(
-        output_file_path="exports/telesale_hcm_test.xlsx",
+        output_file_path=str(tmp_path / "telesale_hcm_test.xlsx"),
         record_count=2,
         executed_at="2026-07-25T12:00:00Z"
     )
@@ -69,8 +70,10 @@ def test_auto_run_filters_correctly() -> None:
         export_use_case=export_use_case
     )
 
-    # 2. Run use case — dùng "nha khoa" để tên mock items khớp keyword filter
-    result = use_case.execute(["nha khoa"])
+    from unittest.mock import patch
+    with patch("time.sleep"):
+        # 2. Run use case — dùng "nha khoa" để tên mock items khớp keyword filter
+        result = use_case.execute(["nha khoa"])
 
     # 3. Verify counts
     # Valid leads: Nha Khoa C (Mobi, HCM, No Web), Nha Khoa E (Vina, HCM, No Web)

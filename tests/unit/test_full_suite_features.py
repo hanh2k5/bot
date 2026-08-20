@@ -31,14 +31,14 @@ class TestTelecomFilteringRules:
         assert _is_valid_phone(mobi_num, allow_viettel=False)[0] is True
 
     def test_viettel_checkbox_filters_exclusively_for_viettel(self):
-        # When + Viettel is checked (allow_viettel=True): filters FOR Viettel 100%!
+        # When + Viettel is checked (allow_viettel=True): unblocks Viettel numbers (accepts Viettel, Vina & Mobi)!
         viettel_num = "0981234567"
         vina_num = "0918234567"
         mobi_num = "0908234567"
 
         assert _is_valid_phone(viettel_num, allow_viettel=True)[0] is True
-        assert _is_valid_phone(vina_num, allow_viettel=True)[0] is False
-        assert _is_valid_phone(mobi_num, allow_viettel=True)[0] is False
+        assert _is_valid_phone(vina_num, allow_viettel=True)[0] is True
+        assert _is_valid_phone(mobi_num, allow_viettel=True)[0] is True
 
 
 class TestWebsiteFilteringRules:

@@ -441,10 +441,16 @@
                     </div>
                     <div style="font-size: 12px; color: var(--text-sub); margin-top: 2px;">Tổng: <b id="stat-total" style="color: var(--apple-blue);">0</b> lead | Từ Excel: <b id="stat-excel">0</b> lead</div>
                 </div>
-                <div style="display: flex; gap: 8px;">
-                    <button class="apple-btn apple-btn-secondary btn-icon-wrapper" onclick="triggerSaveAsExport()">
-                        <i data-lucide="download" style="width: 14px; height: 14px;"></i>Xuất Excel
-                    </button>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <div style="display: flex; align-items: center; background: rgba(0,0,0,0.04); padding: 2px 4px; border-radius: 8px; gap: 4px; border: 1px solid var(--card-border);" title="Nhập số lượng số mới nhất muốn xuất Excel">
+                        <input type="number" id="db-export-limit" class="apple-input" style="width: 55px; height: 28px; padding: 2px 4px; font-size: 12px; text-align: center; border: none; background: transparent;" value="80" placeholder="Số lượng">
+                        <button class="apple-btn apple-btn-secondary btn-icon-wrapper" style="height: 28px; padding: 0 10px; font-size: 12px;" onclick="triggerSaveAsExport()">
+                            <i data-lucide="download" style="width: 14px; height: 14px;"></i>Xuất Excel
+                        </button>
+                        <button class="apple-btn apple-btn-secondary btn-icon-wrapper" style="height: 28px; padding: 0 10px; font-size: 12px; background: rgba(43,87,154,0.12); color: #2b579a; border-color: rgba(43,87,154,0.3);" onclick="triggerExportWord()" title="Xuất file Word (.docx) dạng Thẻ Lưới A4">
+                            <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>Xuất Word
+                        </button>
+                    </div>
                     <button class="apple-btn apple-btn-secondary btn-icon-wrapper" onclick="triggerClickSelectNap()">
                         <i data-lucide="upload" style="width: 14px; height: 14px;"></i>Nạp Excel
                     </button>
@@ -742,13 +748,53 @@
             reader.readAsArrayBuffer(file);
         }
 
+        let isExportingExcel = false;
         function triggerSaveAsExport() {
-            const target = parseInt(document.getElementById('target-input').value) || 80;
-            window.location.href = `/api/download?limit=${target}`;
+            if (isExportingExcel) return;
+            isExportingExcel = true;
+
+            let limitInput = document.getElementById('db-export-limit');
+            let limit_str = limitInput ? limitInput.value.trim() : '';
+            let limit = limit_str === '' ? 0 : (parseInt(limit_str) || 0);
+            
+            let msg = limit > 0 ? `🚀 Đang đóng gói và tải về ${limit} lead mới nhất...` : `🚀 Đang đóng gói và tải về TOÀN BỘ lead trong CSDL...`;
+            showToast(msg, 'info');
+            window.location.href = `/api/download?limit=${limit}`;
+
+            setTimeout(() => { isExportingExcel = false; }, 3000);
+        }
+
+        let isExportingWord = false;
+        function triggerExportWord() {
+            if (isExportingWord) return;
+            isExportingWord = true;
+
+            let limitInput = document.getElementById('db-export-limit');
+            let limit_str = limitInput ? limitInput.value.trim() : '';
+            let limit = limit_str === '' ? 0 : (parseInt(limit_str) || 0);
+
+            let msg = limit > 0 ? `🚀 Đang xuất file Word (.docx) cho ${limit} lead mới nhất...` : `🚀 Đang xuất file Word (.docx) cho TOÀN BỘ lead trong CSDL...`;
+            showToast(msg, 'info');
+            window.location.href = `/api/download_word?limit=${limit}`;
+
+            setTimeout(() => { isExportingWord = false; }, 3000);
         }
 
         let scrapeTimeout = null;
         const renderedLogs = new Set();
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const handleEnterKey = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    startScrape();
+                }
+            };
+            const kwInput = document.getElementById('kw-input');
+            const targetInput = document.getElementById('target-input');
+            if (kwInput) kwInput.addEventListener('keydown', handleEnterKey);
+            if (targetInput) targetInput.addEventListener('keydown', handleEnterKey);
+        });
 
         async function startScrape() {
             const kw = document.getElementById('kw-input').value.trim();

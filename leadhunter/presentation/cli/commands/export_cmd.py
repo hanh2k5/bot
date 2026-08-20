@@ -23,6 +23,7 @@ from leadhunter.presentation.cli.formatters.table_formatter import format_table
 @click.option("--keyword", "-k", default=None, help="Keyword filter")
 @click.option("--from", "created_from", default=None, help="Created from date (ISO 8601)")
 @click.option("--to", "created_to", default=None, help="Created to date (ISO 8601)")
+@click.option("--limit", "-n", type=int, default=None, help="Limit number of latest leads to export")
 @click.option(
     "--format", "output_format",
     type=click.Choice(["table", "json"], case_sensitive=False),
@@ -39,6 +40,7 @@ def export_cmd(
     keyword: Optional[str],
     created_from: Optional[str],
     created_to: Optional[str],
+    limit: Optional[int],
     output_format: str,
 ) -> None:
     """Export leads to an Excel (.xlsx) file."""
@@ -66,6 +68,7 @@ def export_cmd(
             keyword=keyword,
             created_from=created_from,
             created_to=created_to,
+            limit=limit,
         )
         result = use_case.execute(params)
     except NoDataToExportError as exc:

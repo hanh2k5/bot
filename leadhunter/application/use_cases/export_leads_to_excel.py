@@ -78,24 +78,46 @@ class ExportLeadsToExcelUseCase:
             created_to=params.created_to,
         )
 
-        # Slice to the latest 80 leads so export only contains 80 newest records
-        if len(leads) > 80:
-            leads = leads[-80:]
+        # Slice to limit if specified and positive (> 0)
+        if params.limit is not None:
+            if params.limit > 0 and len(leads) > params.limit:
+                leads = leads[-params.limit:]
+        else:
+            if len(leads) > 80:
+                leads = leads[-80:]
 
         if not leads:
             raise NoDataToExportError("the specified filters")
 
-        # Determine output path: nguon 1.xlsx, nguon 2.xlsx, nguon 3.xlsx...
+        # Clean up Zone.Identifier files and old exports
+        try:
+            for zi in list(self._export_dir.glob("*Zone.Identifier*")) + list(self._export_dir.glob("*:Zone.Identifier")):
+                try:
+                    zi.unlink()
+                except Exception:
+                    pass
+
+        except Exception:
+            pass
+
+        # Determine output path: nguon 1.xlsx, nguon 2.xlsx... ALWAYS AUTO-INCREMENT
         if params.output_path:
             out_path = Path(params.output_path)
             if not out_path.suffix:
                 out_path = out_path.with_suffix(".xlsx")
         else:
             self._export_dir.mkdir(parents=True, exist_ok=True)
-            i = 1
-            while (self._export_dir / f"nguon {i}.xlsx").exists():
-                i += 1
-            out_path = self._export_dir / f"nguon {i}.xlsx"
+            existing_nums = []
+            for p in self._export_dir.glob("nguon *.xlsx"):
+                if p.name.startswith("~$") or p.name.startswith("."):
+                    continue
+                try:
+                    num_part = p.stem.replace("nguon ", "").strip()
+                    existing_nums.append(int(num_part))
+                except ValueError:
+                    pass
+            next_num = (max(existing_nums) + 1) if existing_nums else 1
+            out_path = self._export_dir / f"nguon {next_num}.xlsx"
 
         # Write Excel using the adapter (.xlsx)
         self._excel_writer.write(leads, str(out_path))

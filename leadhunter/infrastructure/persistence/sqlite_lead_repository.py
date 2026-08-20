@@ -11,6 +11,7 @@ Security:
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -90,6 +91,16 @@ class SqliteLeadRepository(LeadRepository):
                         1 if lead.phone_normalized else 0,
                     ),
                 )
+        except (sqlite3.IntegrityError, DatabaseError) as exc:
+            cause = getattr(exc, "__cause__", exc)
+            if isinstance(cause, sqlite3.IntegrityError) or "UNIQUE constraint" in str(exc) or "IntegrityError" in str(exc):
+                logger.warning(f"Bản ghi trùng SĐT tại tầng DB: {lead.phone} ({exc})")
+                if lead.phone:
+                    dups = self.find_duplicates(phone=lead.phone)
+                    if dups:
+                        return dups[0]
+                return lead
+            raise DatabaseError("INSERT leads", exc) from exc
         except Exception as exc:
             raise DatabaseError("INSERT leads", exc) from exc
         return lead
@@ -229,6 +240,21 @@ class SqliteLeadRepository(LeadRepository):
         except Exception as exc:
             raise DatabaseError("SELECT find_duplicates", exc) from exc
         return results
+
+    def get_all_phones(self) -> set[str]:
+        """Load toàn bộ SĐT đã có trong CSDL vào Set để pre-filter RAM O(1)."""
+        try:
+            with self._cm.connection() as conn:
+                rows = conn.execute(
+                    "SELECT phone FROM leads WHERE phone IS NOT NULL AND phone != ''"
+                ).fetchall()
+            return {
+                r[0].replace(" ", "").replace("-", "").replace(".", "").replace("+84", "0")
+                for r in rows
+                if r[0] and len(r[0].strip()) >= 8
+            }
+        except Exception:
+            return set()
 
     def update(self, lead: Lead) -> Lead:
         """Update an existing lead record (REQ-030).

@@ -38,12 +38,14 @@ class ConnectionManager:
             self._db_path = None
             self._raw_path = db_path
         else:
-            # 🔒 KHÓA CHẾT ĐƯỜNG DẪN TUYỆT ĐỐI VÀO THƯ MỤC data/
-            # Path(__file__) trỏ đến connection_manager.py -> lùi 3 cấp (.parents[3]) là ra thư mục gốc dự án
-            project_root = Path(__file__).resolve().parents[3]
-            db_name = Path(db_path).name  # Bóc lấy đúng cái tên file (leadhunter.db)
+            path_obj = Path(db_path)
+            if path_obj.is_absolute():
+                self._db_path = path_obj
+            else:
+                project_root = Path(__file__).resolve().parents[3]
+                db_name = path_obj.name
+                self._db_path = project_root / "data" / db_name
 
-            self._db_path = project_root / "data" / db_name
             self._raw_path = str(self._db_path)
 
         self._memory_conn: sqlite3.Connection | None = None

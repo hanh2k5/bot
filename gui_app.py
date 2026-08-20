@@ -43,6 +43,14 @@ SCRAPE_STATUS: dict[str, Any] = {
 }
 
 
+def _get_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
 def _get_db_lead_count() -> int:
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -202,8 +210,7 @@ def _run_scrape_bg(
         cmd.append("--web")
 
     try:
-        env = os.environ.copy()
-        env["PYTHONUNBUFFERED"] = "1"
+        env = _get_subprocess_env()
         proc = subprocess.Popen(
             cmd,
             cwd=PROJECT_ROOT,
@@ -211,6 +218,8 @@ def _run_scrape_bg(
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
         CURRENT_PROC = proc
@@ -225,6 +234,7 @@ def _run_scrape_bg(
                         SCRAPE_LOGS.append(clean_line)
                         if len(SCRAPE_LOGS) > 300:
                             SCRAPE_LOGS.pop(0)
+                        print(clean_line, flush=True)
 
         t = threading.Thread(target=read_output, daemon=True)
         t.start()
@@ -251,11 +261,8 @@ def _run_scrape_bg(
 
         t.join(timeout=1.0)
         final_count = _get_db_lead_count()
-        gained = (
-            min(target, max(0, final_count - initial_count))
-            if target > 0
-            else max(0, final_count - initial_count)
-        )
+        raw_gained = max(gained_so_far, max(0, final_count - initial_count))
+        gained = min(target, raw_gained) if target > 0 else raw_gained
         SCRAPE_STATUS["running"] = False
         SCRAPE_STATUS["current"] = gained
 
@@ -278,12 +285,53 @@ def _run_scrape_bg(
             if not any("🛑 [ĐÃ DỪNG]" in l for l in SCRAPE_LOGS[-3:]):
                 SCRAPE_LOGS.append(msg)
 
+        # 📁 LƯU VẾT XUẤT FILE TỰ ĐỘNG KHI CÀO HOÀN THÀNH
+        try:
+            if gained > 0:
+                SCRAPE_LOGS.append(
+                    f"📁 [TỰ ĐỘNG XUẤT EXCEL ({gained} lead mới)]: Đã xuất thành công file Excel!"
+                )
+        except Exception as exp_err:
+            logger.error(f"Lỗi lưu vết tự động xuất file Excel: {exp_err}")
+
         SCRAPE_STATUS["logs"] = list(SCRAPE_LOGS[-100:])
     except Exception as e:
         SCRAPE_STATUS["running"] = False
         SCRAPE_STATUS["status"] = f"❌ Lỗi cào: {e}"
         SCRAPE_LOGS.append(f"❌ [Lỗi]: {e}")
         SCRAPE_STATUS["logs"] = list(SCRAPE_LOGS[-100:])
+
+
+def _auto_cleanup_exports():
+    """Auto clean up Zone.Identifier stream files and .tmp junk files, keeping all user export files permanently."""
+    try:
+        word_dir = PROJECT_ROOT / "exports"
+        if not word_dir.exists():
+            return
+        # Purge Zone.Identifier and .tmp junk files ONLY
+        junk_patterns = ["*Zone.Identifier*", "*:Zone.Identifier", "*.tmp", "*temp*"]
+        for pat in junk_patterns:
+            for junk in word_dir.glob(pat):
+                try:
+                    junk.unlink()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
+def _start_background_cleaner():
+    """Launch a background thread to continuously clean up Zone.Identifier junk files every 2 seconds."""
+    import threading
+    def _loop():
+        while True:
+            _auto_cleanup_exports()
+            time.sleep(2)
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+
+# Start background cleaner on module load
+_start_background_cleaner()
 
 
 class LeadHunterGUIHandler(BaseHTTPRequestHandler):
@@ -325,6 +373,82 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
             self._send_json({"activated": True})
         elif self.path == "/api/status":
             self._send_json(SCRAPE_STATUS)
+        elif "/api/download_word" in self.path:
+            try:
+                import urllib.parse
+                from leadhunter.infrastructure.persistence.connection_manager import (
+                    ConnectionManager,
+                )
+                from leadhunter.infrastructure.persistence.sqlite_lead_repository import (
+                    SqliteLeadRepository,
+                )
+                from leadhunter.infrastructure.adapters.word_writer_adapter import (
+                    WordWriterAdapter,
+                )
+
+                query = urllib.parse.urlparse(self.path).query
+                params = urllib.parse.parse_qs(query)
+                limit = 80
+                if "limit" in params:
+                    try:
+                        limit = int(params["limit"][0])
+                    except ValueError:
+                        limit = 80
+
+                cm = ConnectionManager(str(DB_PATH))
+                repo = SqliteLeadRepository(cm)
+                leads = repo.list_all_for_export()
+                if limit > 0 and len(leads) > limit:
+                    leads = leads[-limit:]
+
+                _auto_cleanup_exports()
+                word_dir = PROJECT_ROOT / "exports"
+                word_dir.mkdir(parents=True, exist_ok=True)
+                existing_nums = []
+                for p in word_dir.glob("nguon *.docx"):
+                    try:
+                        num_part = p.stem.replace("nguon ", "").strip()
+                        existing_nums.append(int(num_part))
+                    except ValueError:
+                        pass
+                next_num = (max(existing_nums) + 1) if existing_nums else 1
+                suggested_filename = f"nguon {next_num}.docx"
+                temp_word_path = word_dir / f".temp_word_{int(time.time())}.docx"
+
+                adapter = WordWriterAdapter()
+                adapter.write(leads, str(temp_word_path))
+
+                if temp_word_path.exists():
+                    file_bytes = temp_word_path.read_bytes()
+                    try:
+                        temp_word_path.unlink()
+                    except OSError:
+                        pass
+                    self.send_response(200)
+                    self.send_header(
+                        "Content-Type",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                    self.send_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{suggested_filename}"',
+                    )
+                    self.send_header("Content-Length", str(len(file_bytes)))
+                    self.end_headers()
+                    self.wfile.write(file_bytes)
+                    return
+
+                self._send_json(
+                    {"success": False, "message": "Không thể tạo file Word!"},
+                    status=500,
+                )
+            except Exception as e:
+                logger.error(f"Lỗi xuất file Word: {e}")
+                self._send_json(
+                    {"success": False, "message": f"Lỗi xuất file Word: {e}"},
+                    status=500,
+                )
+
         elif "/api/download" in self.path:
             try:
                 import urllib.parse
@@ -338,47 +462,65 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
                     except ValueError:
                         limit = 80
 
+
+
+                excel_dir = PROJECT_ROOT / "exports"
+                excel_dir.mkdir(parents=True, exist_ok=True)
+                existing_nums = []
+                for p in excel_dir.glob("nguon *.xlsx"):
+                    if p.name.startswith("~$") or p.name.startswith("."):
+                        continue
+                    try:
+                        num_part = p.stem.replace("nguon ", "").strip()
+                        existing_nums.append(int(num_part))
+                    except ValueError:
+                        pass
+                next_num = (max(existing_nums) + 1) if existing_nums else 1
+                suggested_filename = f"nguon {next_num}.xlsx"
+                temp_excel_path = excel_dir / f".temp_excel_{int(time.time())}.xlsx"
+
                 cmd = [
                     PYTHON_EXEC,
                     "-m",
                     "leadhunter.presentation.cli.main",
                     "export",
+                    "-n",
+                    str(limit),
+                    "-o",
+                    str(temp_excel_path),
                     "--format",
                     "json",
                 ]
                 res = subprocess.run(
-                    cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30
+                    cmd,
+                    cwd=PROJECT_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    env=_get_subprocess_env(),
+                    encoding="utf-8",
+                    errors="replace",
                 )
 
-                try:
-                    output_data = json.loads(res.stdout.strip())
-                    file_path_str = output_data.get("output_file")
-                except Exception:
-                    file_path_str = None
-
-                if file_path_str:
-                    target_file = Path(file_path_str)
-                    if target_file.exists():
-                        file_bytes = target_file.read_bytes()
-                        self.send_response(200)
-                        self.send_header(
-                            "Content-Type",
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        )
-                        self.send_header(
-                            "Content-Disposition",
-                            f'attachment; filename="{target_file.name}"',
-                        )
-                        self.send_header("Content-Length", str(len(file_bytes)))
-                        self.end_headers()
-                        self.wfile.write(file_bytes)
-
-                        # Clean up: delete the temporary exported file from disk
-                        try:
-                            target_file.unlink()
-                        except Exception:
-                            pass
-                        return
+                if temp_excel_path.exists():
+                    file_bytes = temp_excel_path.read_bytes()
+                    try:
+                        temp_excel_path.unlink()
+                    except Exception:
+                        pass
+                    self.send_response(200)
+                    self.send_header(
+                        "Content-Type",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    )
+                    self.send_header(
+                        "Content-Disposition",
+                        f'attachment; filename="{suggested_filename}"',
+                    )
+                    self.send_header("Content-Length", str(len(file_bytes)))
+                    self.end_headers()
+                    self.wfile.write(file_bytes)
+                    return
 
                 self._send_json(
                     {
@@ -460,10 +602,21 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/xuat":
             output_path = payload.get("output_path", "").strip()
+            limit = payload.get("limit")
             cmd = [PYTHON_EXEC, "-m", "leadhunter.presentation.cli.main", "export"]
+            if limit:
+                cmd.extend(["-n", str(limit)])
             if output_path:
                 cmd.extend(["-o", output_path])
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=_get_subprocess_env(),
+                encoding="utf-8",
+                errors="replace",
+            )
             self._send_json(
                 {"success": True, "message": "Đã xuất dữ liệu Excel thành công!"}
             )
@@ -491,7 +644,15 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
                 "nap",
                 str(temp_path),
             ]
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=_get_subprocess_env(),
+                encoding="utf-8",
+                errors="replace",
+            )
 
             # Clean up: delete the temporary uploaded file from disk immediately
             try:
@@ -508,7 +669,15 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
             cmd = [PYTHON_EXEC, "-m", "leadhunter.presentation.cli.main", "nap"]
             if file_path:
                 cmd.append(file_path)
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=_get_subprocess_env(),
+                encoding="utf-8",
+                errors="replace",
+            )
             clean_msg = (
                 _clean_emoji_message(res.stdout) or "Đã nạp dữ liệu Excel thành công!"
             )
@@ -516,7 +685,15 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/quet":
             cmd = [PYTHON_EXEC, "-m", "leadhunter.presentation.cli.main", "gop"]
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=_get_subprocess_env(),
+                encoding="utf-8",
+                errors="replace",
+            )
             self._send_json(
                 {
                     "success": True,
@@ -526,14 +703,30 @@ class LeadHunterGUIHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/api/huy":
             cmd = [PYTHON_EXEC, "-m", "leadhunter.presentation.cli.main", "rollback"]
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=_get_subprocess_env(),
+                encoding="utf-8",
+                errors="replace",
+            )
             self._send_json(
                 {"success": True, "message": "Đã hoàn tác đợt cào gần nhất thành công!"}
             )
 
         elif self.path == "/api/reset":
             cmd = [PYTHON_EXEC, "-m", "leadhunter.presentation.cli.main", "reset-db"]
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True, text=True)
+            res = subprocess.run(
+                cmd,
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                env=_get_subprocess_env(),
+                encoding="utf-8",
+                errors="replace",
+            )
             self._send_json(
                 {"success": True, "message": "Đã xóa sạch cơ sở dữ liệu thành công!"}
             )
@@ -588,12 +781,24 @@ def start_backend_server(port: int = 5000) -> None:
     try:
         server_address = ("127.0.0.1", port)
         httpd = ThreadedHTTPServer(server_address, LeadHunterGUIHandler)
+        print(
+            f"🚀 Server Giao Diện LeadHunter đã sẵn sàng tại: http://127.0.0.1:{port}",
+            flush=True,
+        )
+        sys.stdout.flush()
         httpd.serve_forever()
     except Exception as e:
-        print(f"Could not start server on port {port}: {e}")
+        print(f"Could not start server on port {port}: {e}", flush=True)
 
 
 def main() -> None:
+    # Đảm bảo mã hóa UTF-8 và flush ngõ ra Terminal trên Windows
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     # 1. Khởi chạy Web Backend Server độc lập ở background thread
     server_thread = threading.Thread(
         target=start_backend_server, args=(5000,), daemon=True
@@ -601,14 +806,13 @@ def main() -> None:
     server_thread.start()
     time.sleep(0.5)
 
-    print("🚀 Server Giao Diện LeadHunter đã sẵn sàng tại: http://127.0.0.1:5000")
-
     # 2. Thử bật cửa sổ pywebview Native (Chỉ trên máy có GUI như Windows)
     try:
         # Ẩn stderr tạm thời để chặn log rác GTK/QT của pywebview trên Linux
         sys_err_bak = sys.stderr
-        sys.stderr = open(os.devnull, 'w')
+        sys.stderr = open(os.devnull, "w")
         import webview
+
         sys.stderr = sys_err_bak
 
         webview.create_window(
@@ -628,7 +832,7 @@ def main() -> None:
             while True:
                 time.sleep(1)
         except (KeyboardInterrupt, SystemExit):
-            print("🛑 Đã tắt Server LeadHunter thành công.")
+            print("🛑 Đã tắt Server LeadHunter thành công.", flush=True)
 
 
 if __name__ == "__main__":

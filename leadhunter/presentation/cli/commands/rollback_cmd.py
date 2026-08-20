@@ -11,16 +11,11 @@ from leadhunter.infrastructure.persistence.sqlite_lead_repository import (
 @click.pass_context
 def rollback_cmd(ctx: click.Context) -> None:
     """Rollback (Xóa) toàn bộ dữ liệu của đợt cào tự động gần nhất."""
-    config = ctx.obj["config"]
-
     try:
-        from leadhunter.infrastructure.persistence.connection_manager import (
-            ConnectionManager,
-        )
+        config = ctx.obj["config"]
+        from leadhunter.presentation.cli.factory import make_repository
 
-        cm = ConnectionManager(config.database.path)
-        repo = SqliteLeadRepository(cm)
-
+        repo = make_repository(config)
         deleted_count = repo.rollback_last_batch()
 
         if deleted_count > 0:
